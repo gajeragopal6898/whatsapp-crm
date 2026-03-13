@@ -1,8 +1,7 @@
 const https = require('https');
 
-// Groq is free - 14,400 requests/day, very fast
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const MODEL = 'llama-3.1-8b-instant'; // Free Groq model
+const MODEL = 'llama-3.1-8b-instant';
 
 async function callGroq(prompt) {
   if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not set in Railway variables');
@@ -11,7 +10,7 @@ async function callGroq(prompt) {
     const body = JSON.stringify({
       model: MODEL,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 300,
+      max_tokens: 250,
       temperature: 0.7
     });
 
@@ -19,6 +18,7 @@ async function callGroq(prompt) {
       hostname: 'api.groq.com',
       path: '/openai/v1/chat/completions',
       method: 'POST',
+      timeout: 25000, // 25 second timeout
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${GROQ_API_KEY}`,
@@ -40,6 +40,11 @@ async function callGroq(prompt) {
       });
     });
 
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Groq request timed out'));
+    });
+
     req.on('error', reject);
     req.write(body);
     req.end();
@@ -51,27 +56,21 @@ async function generateReply({ customerMessage, businessContext, conversationHis
     `${m.direction === 'incoming' ? 'Customer' : 'Business'}: ${m.content}`
   ).join('\n');
 
-  const prompt = `You are a helpful WhatsApp business assistant. Reply to the customer message.
+  const prompt = `You are a WhatsApp business assistant. Give a SHORT reply (2-3 sentences max).
 
-BUSINESS INFO:
-${businessContext || 'A professional business. Be helpful, polite and concise.'}
+BUSINESS: ${businessContext || 'A professional business.'}
 
 RULES:
-- Detect language from customer message and reply in SAME language
-- If Gujarati message → reply in Gujarati
-- If Hindi message → reply in Hindi
-- If English message → reply in English
-- Keep reply short: 2-4 sentences only
-- Be warm and professional
-- No markdown, no asterisks, no bullet points
-- Don't say you are AI
-${customerName ? `- Customer name: ${customerName}` : ''}
+- Reply in the SAME language as the customer
+- Gujarati in → Gujarati out, Hindi in → Hindi out, English in → English out
+- Short and friendly reply only
+- No bullet points, no asterisks
+- Do not say you are AI
+${customerName ? `- Customer: ${customerName}` : ''}
 
-${historyText ? `RECENT CHAT:\n${historyText}\n` : ''}
-
-CUSTOMER: ${customerMessage}
-
-Reply:`;
+${historyText ? `CHAT HISTORY:\n${historyText}\n` : ''}
+CUSTOMER MESSAGE: ${customerMessage}
+YOUR REPLY:`;
 
   return await callGroq(prompt);
 }
@@ -80,8 +79,7 @@ async function summarizeConversation(messages) {
   const text = messages.map(m =>
     `${m.direction === 'incoming' ? 'Customer' : 'Agent'}: ${m.content}`
   ).join('\n');
-
-  const prompt = `Summarize this WhatsApp business conversation in 2-3 bullet points. Be concise:\n\n${text}\n\nSummary:`;
+  const prompt = `Summarize this WhatsApp conversation in 2-3 bullet points:\n\n${text}\n\nSummary:`;
   return await callGroq(prompt);
 }
 
