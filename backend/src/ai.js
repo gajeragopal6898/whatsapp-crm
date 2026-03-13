@@ -1,26 +1,27 @@
 const https = require('https');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = 'gemini-2.0-flash'; // Free tier model
+// Groq is free - 14,400 requests/day, very fast
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const MODEL = 'llama-3.1-8b-instant'; // Free Groq model
 
-async function callGemini(prompt) {
-  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
+async function callGroq(prompt) {
+  if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not set in Railway variables');
 
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 300,
-      }
+      model: MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 300,
+      temperature: 0.7
     });
 
     const options = {
-      hostname: 'generativelanguage.googleapis.com',
-      path: `/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      hostname: 'api.groq.com',
+      path: '/openai/v1/chat/completions',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Length': Buffer.byteLength(body)
       }
     };
@@ -31,9 +32,10 @@ async function callGemini(prompt) {
       res.on('end', () => {
         try {
           const json = JSON.parse(data);
-          const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (json.error) return reject(new Error(json.error.message || JSON.stringify(json.error)));
+          const text = json.choices?.[0]?.message?.content;
           if (text) resolve(text.trim());
-          else reject(new Error('No response from Gemini: ' + data));
+          else reject(new Error('No response from Groq: ' + data));
         } catch (e) { reject(e); }
       });
     });
@@ -49,30 +51,29 @@ async function generateReply({ customerMessage, businessContext, conversationHis
     `${m.direction === 'incoming' ? 'Customer' : 'Business'}: ${m.content}`
   ).join('\n');
 
-  const prompt = `You are a helpful business WhatsApp assistant. Reply to the customer message below.
+  const prompt = `You are a helpful WhatsApp business assistant. Reply to the customer message.
 
-BUSINESS INFORMATION:
+BUSINESS INFO:
 ${businessContext || 'A professional business. Be helpful, polite and concise.'}
 
-INSTRUCTIONS:
-- Detect the language of the customer message and reply in the SAME language
-- If customer writes in Gujarati, reply in Gujarati
-- If customer writes in Hindi, reply in Hindi  
-- If customer writes in English, reply in English
-- Keep replies short (2-4 sentences max)
-- Be warm, professional and helpful
-- Do NOT use markdown formatting
-- Do NOT mention you are an AI
-- Sign off as the business, not as "AI"
-${customerName ? `- Customer name is: ${customerName}` : ''}
+RULES:
+- Detect language from customer message and reply in SAME language
+- If Gujarati message → reply in Gujarati
+- If Hindi message → reply in Hindi
+- If English message → reply in English
+- Keep reply short: 2-4 sentences only
+- Be warm and professional
+- No markdown, no asterisks, no bullet points
+- Don't say you are AI
+${customerName ? `- Customer name: ${customerName}` : ''}
 
-${historyText ? `RECENT CONVERSATION:\n${historyText}\n` : ''}
+${historyText ? `RECENT CHAT:\n${historyText}\n` : ''}
 
-CUSTOMER MESSAGE: ${customerMessage}
+CUSTOMER: ${customerMessage}
 
 Reply:`;
 
-  return await callGemini(prompt);
+  return await callGroq(prompt);
 }
 
 async function summarizeConversation(messages) {
@@ -80,13 +81,8 @@ async function summarizeConversation(messages) {
     `${m.direction === 'incoming' ? 'Customer' : 'Agent'}: ${m.content}`
   ).join('\n');
 
-  const prompt = `Summarize this WhatsApp business conversation in 2-3 bullet points. Be concise:
-
-${text}
-
-Summary:`;
-
-  return await callGemini(prompt);
+  const prompt = `Summarize this WhatsApp business conversation in 2-3 bullet points. Be concise:\n\n${text}\n\nSummary:`;
+  return await callGroq(prompt);
 }
 
-module.exports = { generateReply, summarizeConversation, callGemini };
+module.exports = { generateReply, summarizeConversation };
