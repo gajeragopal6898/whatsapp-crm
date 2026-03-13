@@ -1,7 +1,7 @@
 const https = require('https');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = 'gemini-1.5-flash'; // Free tier model
+const MODEL = 'gemini-2.0-flash'; // Free tier model
 
 async function callGemini(prompt) {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
