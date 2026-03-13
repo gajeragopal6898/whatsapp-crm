@@ -10,15 +10,22 @@ let isConnected = false;
 let reconnectTimer = null;
 let keepAliveTimer = null;
 
-// Clean phone number - remove @lid, @s.whatsapp.net etc
-function cleanPhone(jid) {
+// Store real JID mapping: phone -> full JID (e.g. 919876543210@s.whatsapp.net)
+const jidMap = {};
+
+// Extract display phone from any JID format
+function extractPhone(jid) {
   if (!jid) return null;
-  return jid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/@.*/g, '').trim();
+  // Remove everything after @ 
+  return jid.split('@')[0];
 }
 
-// Format phone for sending
-function formatJid(phone) {
-  const clean = cleanPhone(phone);
+// Get the best JID for sending - prefer stored real JID
+function getSendJid(phone) {
+  const clean = phone.split('@')[0]; // ensure no @
+  // If we have a stored real JID, use it
+  if (jidMap[clean]) return jidMap[clean];
+  // Otherwise construct standard JID
   return `${clean}@s.whatsapp.net`;
 }
 
@@ -33,8 +40,9 @@ async function initWhatsApp(io) {
       printQRInTerminal: false,
       browser: ['WhatsApp CRM', 'Chrome', '1.0.0'],
       connectTimeoutMs: 60000,
-      keepAliveIntervalMs: 30000,
+      keepAliveIntervalMs: 25000,
       retryRequestDelayMs: 2000,
+      generateHighQualityLinkPreview: false,
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -54,17 +62,18 @@ async function initWhatsApp(io) {
         currentQR = null;
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
-        const phone = cleanPhone(sock.user?.id) || null;
+        const phone = extractPhone(sock.user?.id) || null;
         io.emit('whatsapp:connected', { phone });
         console.log('✅ WhatsApp connected:', phone);
 
-        // Keep-alive ping every 2 minutes to prevent Railway sleep disconnect
+        // Keep-alive every 90 seconds
         if (keepAliveTimer) clearInterval(keepAliveTimer);
-        keepAliveTimer = setInterval(() => {
+        keepAliveTimer = setInterval(async () => {
           if (sock && isConnected) {
-            sock.sendPresenceUpdate('available').catch(() => {});
+            try { await sock.sendPresenceUpdate('available'); }
+            catch (e) { console.log('Keep-alive error:', e.message); }
           }
-        }, 120000);
+        }, 90000);
 
         await supabase.from('settings').upsert({
           key: 'whatsapp_session',
@@ -82,7 +91,7 @@ async function initWhatsApp(io) {
         console.log('WhatsApp disconnected. Code:', code, 'LoggedOut:', loggedOut);
 
         if (!loggedOut) {
-          const delay = code === 408 ? 3000 : 5000;
+          const delay = 5000;
           console.log(`Reconnecting in ${delay/1000}s...`);
           if (reconnectTimer) clearTimeout(reconnectTimer);
           reconnectTimer = setTimeout(() => initWhatsApp(io), delay);
@@ -92,24 +101,33 @@ async function initWhatsApp(io) {
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
+
       for (const msg of messages) {
         if (msg.key.fromMe || !msg.message) continue;
-        const rawJid = msg.key.remoteJid || '';
-        if (rawJid.includes('@g.us')) continue; // skip groups
 
-        const phone = cleanPhone(rawJid);
+        const rawJid = msg.key.remoteJid || '';
+        if (rawJid.includes('@g.us') || rawJid.includes('@broadcast')) continue;
+
+        // Extract phone number from JID
+        const phone = extractPhone(rawJid);
         if (!phone) continue;
+
+        // Store the real JID for this phone so we can reply correctly
+        // Even if it's @lid, store it — Baileys knows how to route it
+        jidMap[phone] = rawJid;
+        console.log(`📱 Mapped phone ${phone} -> ${rawJid}`);
 
         const content =
           msg.message?.conversation ||
           msg.message?.extendedTextMessage?.text ||
           msg.message?.imageMessage?.caption ||
+          msg.message?.videoMessage?.caption ||
           '[media]';
 
         const pushName = msg.pushName || phone;
-        console.log(`📩 Message from ${phone}: ${content}`);
+        console.log(`📩 Message from ${phone} (${rawJid}): ${content}`);
 
-        await handleIncomingMessage({ phone, content, pushName, io });
+        await handleIncomingMessage({ phone, rawJid, content, pushName, io });
       }
     });
 
@@ -120,7 +138,7 @@ async function initWhatsApp(io) {
   }
 }
 
-async function handleIncomingMessage({ phone, content, pushName, io }) {
+async function handleIncomingMessage({ phone, rawJid, content, pushName, io }) {
   try {
     let { data: lead } = await supabase.from('leads').select('*').eq('phone', phone).single();
     const isNewLead = !lead;
@@ -138,7 +156,6 @@ async function handleIncomingMessage({ phone, content, pushName, io }) {
       }).select().single();
       lead = newLead;
       io.emit('lead:new', lead);
-      console.log('✅ New lead created:', phone);
     } else {
       await supabase.from('leads').update({
         last_message: content,
@@ -160,7 +177,7 @@ async function handleIncomingMessage({ phone, content, pushName, io }) {
     const aiSettings = aiRow?.value || {};
 
     if (aiSettings.enabled && aiSettings.mode !== 'off' && content !== '[media]') {
-      await handleAIReply({ lead, content, aiSettings, io });
+      await handleAIReply({ lead, phone, content, aiSettings, io });
     } else {
       await processRuleReply({ phone, content, isNewLead, io, lead });
     }
@@ -169,16 +186,16 @@ async function handleIncomingMessage({ phone, content, pushName, io }) {
   }
 }
 
-async function handleAIReply({ lead, content, aiSettings, io }) {
+async function handleAIReply({ lead, phone, content, aiSettings, io }) {
   try {
     // Check escalation keywords
     const lower = content.toLowerCase();
     const escalateWords = aiSettings.escalate_keywords || ['human', 'agent', 'person', 'manager'];
     if (escalateWords.some(w => lower.includes(w.toLowerCase()))) {
       const msg = 'Let me connect you with our team member. Please wait a moment. 🙏';
-      await sendWithDelay(lead.phone, msg, 1);
-      await saveOutgoing(lead.id, lead.phone, msg, io);
-      io.emit('lead:escalated', { lead_id: lead.id, phone: lead.phone, name: lead.name });
+      await sendWithDelay(phone, msg, 1);
+      await saveOutgoing(lead.id, phone, msg, io);
+      io.emit('lead:escalated', { lead_id: lead.id, phone, name: lead.name });
       return;
     }
 
@@ -188,7 +205,7 @@ async function handleAIReply({ lead, content, aiSettings, io }) {
         .select('*', { count: 'exact', head: true })
         .eq('lead_id', lead.id).eq('direction', 'outgoing');
       if (count >= aiSettings.max_auto_replies) {
-        console.log('Max AI replies reached for', lead.phone);
+        console.log('Max AI replies reached for', phone);
         return;
       }
     }
@@ -206,8 +223,8 @@ async function handleAIReply({ lead, content, aiSettings, io }) {
         const { data: rules } = await supabase.from('auto_reply_rules')
           .select('*').eq('type', 'away').eq('is_active', true).limit(1);
         if (rules?.[0]) {
-          await sendWithDelay(lead.phone, rules[0].reply_text, 1);
-          await saveOutgoing(lead.id, lead.phone, rules[0].reply_text, io);
+          await sendWithDelay(phone, rules[0].reply_text, 1);
+          await saveOutgoing(lead.id, phone, rules[0].reply_text, io);
           return;
         }
       }
@@ -217,7 +234,7 @@ async function handleAIReply({ lead, content, aiSettings, io }) {
     const { data: history } = await supabase.from('messages').select('*')
       .eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(6);
 
-    console.log('🤖 Generating AI reply for', lead.phone);
+    console.log('🤖 Generating AI reply for', phone);
 
     const reply = await generateReply({
       customerMessage: content,
@@ -226,23 +243,20 @@ async function handleAIReply({ lead, content, aiSettings, io }) {
       customerName: lead.name || ''
     });
 
-    console.log('✅ AI reply generated:', reply.slice(0, 50));
+    console.log('✅ AI reply:', reply.slice(0, 60));
 
     if (aiSettings.mode === 'full') {
-      await sendWithDelay(lead.phone, reply, aiSettings.reply_delay || 3);
-      await saveOutgoing(lead.id, lead.phone, reply, io);
+      await sendWithDelay(phone, reply, aiSettings.reply_delay || 3);
+      await saveOutgoing(lead.id, phone, reply, io);
     } else {
-      // Semi-auto — suggest to agent
       io.emit('ai:reply_suggestion', {
-        lead_id: lead.id, phone: lead.phone,
-        name: lead.name, suggested_reply: reply,
-        customer_message: content
+        lead_id: lead.id, phone, name: lead.name,
+        suggested_reply: reply, customer_message: content
       });
     }
   } catch (err) {
     console.error('AI reply error:', err.message);
-    // Fallback to rule-based
-    await processRuleReply({ phone: lead.phone, content, isNewLead: false, io, lead });
+    await processRuleReply({ phone, content, isNewLead: false, io, lead });
   }
 }
 
@@ -282,9 +296,10 @@ async function sendWithDelay(phone, text, delaySecs = 3) {
 
 async function sendMsg(phone, text) {
   if (!sock || !isConnected) throw new Error('WhatsApp not connected');
-  const jid = formatJid(phone);
+  // Use stored real JID if available, otherwise construct
+  const jid = getSendJid(phone);
+  console.log(`📤 Sending to ${jid}: ${text.slice(0, 40)}`);
   await sock.sendMessage(jid, { text });
-  console.log('✅ Sent to', jid, ':', text.slice(0, 30));
 }
 
 async function saveOutgoing(leadId, phone, content, io) {
