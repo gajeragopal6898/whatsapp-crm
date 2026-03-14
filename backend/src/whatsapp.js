@@ -267,7 +267,9 @@ async function handleAIReply({ lead, phone, content, aiSettings, io }) {
       customerMessage: content,
       businessContext: aiSettings.business_context || '',
       conversationHistory: (history || []).reverse(),
-      customerName: lead.name || ''
+      customerName: lead.name || '',
+      phone: phone,
+      leadId: lead.id
     });
     console.log('✅ AI reply ready:', reply.slice(0, 50));
 
@@ -278,6 +280,7 @@ async function handleAIReply({ lead, phone, content, aiSettings, io }) {
       io.emit('ai:reply_suggestion', { lead_id: lead.id, phone, name: lead.name, suggested_reply: reply, customer_message: content });
     }
   } catch (err) {
+    if (err.message === 'AI_PAUSED') { console.log('AI paused for ' + phone); return; }
     console.error('AI reply error:', err.message);
     await processRuleReply({ phone, content, isNewLead: false, io, lead });
   }
