@@ -1,15 +1,8 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const pino     = require('pino');
-const qrcode   = require('qrcode');
-const https    = require('https');
-const supabase = require('./supabase');
-const { generateReply, isAIPaused } = require('./ai');
+import { useState, useEffect, useRef } from 'react'
+import api from '../lib/api'
+import toast from 'react-hot-toast'
 
-let sock        = null;
-let currentQR   = null;
-let isConnected = false;
-
-// ── All 29 product names (must match product_media.product_name exactly) ──────
+// All product names matching backend list
 const ALL_PRODUCTS = [
   'Manoveda','ShayanVeda','Shiroveda','Manomukta',
   'Smritiveda','Immuno Plus','Shwasveda','Allergy-GO',
@@ -22,301 +15,356 @@ const ALL_PRODUCTS = [
   'Satvik Multivita','GO_Lith',
   'Ashwagandha','Shilajit Cap','Amla','Brahmi','Neem','Musli',
   'Isabgool','Harad','Moringa','Triphala',
-];
+]
 
-// ── Detect which product(s) are mentioned in a reply text ────────────────────
-function detectProductsInReply(replyText) {
-  if (!replyText) return [];
-  return ALL_PRODUCTS.filter(p =>
-    replyText.toLowerCase().includes(p.toLowerCase())
-  );
-}
+// ─── Media Tab ────────────────────────────────────────────────────────────────
+function MediaTab() {
+  const [mediaMap, setMediaMap]       = useState({})   // { productName: { image_url, video_url } }
+  const [loading, setLoading]         = useState(true)
+  const [uploading, setUploading]     = useState({})   // { 'ProductName_image': true }
+  const [search, setSearch]           = useState('')
+  const fileRefs = useRef({})
 
-// ── Fetch media URLs for a product ───────────────────────────────────────────
-async function getProductMedia(productName) {
-  try {
-    const { data } = await supabase
-      .from('product_media')
-      .select('image_url, video_url')
-      .eq('product_name', productName)
-      .single();
-    return data || null;
-  } catch { return null; }
-}
-
-// ── Download a URL into a Buffer ─────────────────────────────────────────────
-function downloadBuffer(url) {
-  return new Promise((resolve, reject) => {
-    const mod = url.startsWith('https') ? https : require('http');
-    mod.get(url, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
-}
-
-// ── Send media (image then video) for a product to a JID ────────────────────
-async function sendProductMedia(jid, productName) {
-  try {
-    const media = await getProductMedia(productName);
-    if (!media) return;
-
-    // Send image
-    if (media.image_url) {
-      try {
-        const imgBuffer = await downloadBuffer(media.image_url);
-        const ext = media.image_url.split('.').pop().split('?')[0].toLowerCase();
-        const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
-        await sock.sendMessage(jid, {
-          image: imgBuffer,
-          mimetype: mime,
-          caption: `📸 ${productName}`,
-        });
-        console.log(`✅ Sent image for ${productName}`);
-        // Small delay between image and video
-        await new Promise(r => setTimeout(r, 1500));
-      } catch (imgErr) {
-        console.error(`Image send error for ${productName}:`, imgErr.message);
-      }
-    }
-
-    // Send video
-    if (media.video_url) {
-      try {
-        const vidBuffer = await downloadBuffer(media.video_url);
-        await sock.sendMessage(jid, {
-          video: vidBuffer,
-          mimetype: 'video/mp4',
-          caption: `🎥 ${productName} — Product Video`,
-        });
-        console.log(`✅ Sent video for ${productName}`);
-      } catch (vidErr) {
-        console.error(`Video send error for ${productName}:`, vidErr.message);
-      }
-    }
-  } catch (err) {
-    console.error(`sendProductMedia error for ${productName}:`, err.message);
+  const load = async () => {
+    setLoading(true)
+    try {
+      const { data } = await api.get('/media')
+      const map = {}
+      ;(data || []).forEach(m => { map[m.product_name] = m })
+      setMediaMap(map)
+    } catch { toast.error('Failed to load media') }
+    finally { setLoading(false) }
   }
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-async function initWhatsApp(io) {
-  const { state, saveCreds } = await useMultiFileAuthState('/tmp/whatsapp-auth');
-  const { version } = await fetchLatestBaileysVersion();
+  useEffect(() => { load() }, [])
 
-  sock = makeWASocket({
-    version,
-    auth: state,
-    logger: pino({ level: 'silent' }),
-    printQRInTerminal: false,
-    browser: ['WhatsApp CRM', 'Chrome', '1.0.0'],
-  });
+  const handleUpload = async (productName, mediaType, file) => {
+    if (!file) return
+    const key = `${productName}_${mediaType}`
+    setUploading(u => ({ ...u, [key]: true }))
+    try {
+      // Read file as base64
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader()
+        r.onload = () => res(r.result.split(',')[1])
+        r.onerror = rej
+        r.readAsDataURL(file)
+      })
 
-  sock.ev.on('creds.update', saveCreds);
+      const { data } = await api.post('/media/upload', {
+        productName,
+        mediaType,
+        fileBase64: base64,
+        fileName: file.name,
+        mimeType: file.type,
+      })
 
-  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-    if (qr) {
-      currentQR   = await qrcode.toDataURL(qr);
-      isConnected = false;
-      io.emit('whatsapp:qr', { qr: currentQR });
-      console.log('QR code generated');
-    }
-
-    if (connection === 'open') {
-      isConnected = true;
-      currentQR   = null;
-      const phone = sock.user?.id?.split(':')[0] || null;
-      io.emit('whatsapp:connected', { phone });
-      console.log('WhatsApp connected:', phone);
-      await supabase.from('settings').upsert({
-        key: 'whatsapp_session',
-        value: { connected: true, phone, last_connected: new Date().toISOString() }
-      }, { onConflict: 'key' });
-    }
-
-    if (connection === 'close') {
-      isConnected = false;
-      io.emit('whatsapp:disconnected', {});
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('WhatsApp disconnected. Reconnecting:', shouldReconnect);
-      if (shouldReconnect) setTimeout(() => initWhatsApp(io), 5000);
-    }
-  });
-
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
-    for (const msg of messages) {
-      if (msg.key.fromMe) continue;
-      if (!msg.message)   continue;
-
-      const jid   = msg.key.remoteJid;
-      const phone = jid?.replace('@s.whatsapp.net', '');
-      if (!phone || phone.includes('@g.us')) continue;
-
-      const content =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        '[media]';
-
-      const pushName = msg.pushName || phone;
-      console.log(`New message from ${phone}: ${content}`);
-
-      await handleIncomingMessage({ phone, jid, content, pushName, io, msg });
-    }
-  });
-
-  return sock;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-async function handleIncomingMessage({ phone, jid, content, pushName, io }) {
-  try {
-    // Get or create lead
-    let { data: lead } = await supabase
-      .from('leads').select('*').eq('phone', phone).single();
-
-    const isNewLead = !lead;
-
-    if (isNewLead) {
-      const { data: stage } = await supabase
-        .from('lead_stages').select('id').eq('is_default', true).single();
-
-      const { data: newLead } = await supabase
-        .from('leads')
-        .insert({
-          name: pushName, phone,
-          first_message: content,
-          stage_id: stage?.id,
-          last_message: content,
-          last_message_at: new Date().toISOString(),
-          message_count: 1,
-          is_read: false,
-        })
-        .select().single();
-
-      lead = newLead;
-      io.emit('lead:new', lead);
-    } else {
-      await supabase.from('leads').update({
-        last_message: content,
-        last_message_at: new Date().toISOString(),
-        message_count: (lead.message_count || 0) + 1,
-        is_read: false,
-      }).eq('id', lead.id);
-      io.emit('lead:updated', { ...lead, last_message: content });
-    }
-
-    // Save inbound message
-    await supabase.from('messages').insert({
-      lead_id: lead.id, phone, content,
-      direction: 'inbound', is_read: false,
-    });
-    io.emit('message:new', { phone, content, direction: 'inbound', lead_id: lead.id });
-
-    // ── AI Auto-Reply ─────────────────────────────────────────────────────────
-    await processAIReply({ phone, jid, content, lead, isNewLead, io });
-
-  } catch (err) {
-    console.error('Error handling message:', err);
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-async function processAIReply({ phone, jid, content, lead, isNewLead, io }) {
-  try {
-    // Check AI paused for this lead
-    if (lead?.ai_paused) {
-      console.log(`AI paused for ${phone}`);
-      return;
-    }
-
-    // Load AI settings
-    const { data: aiSettingRow } = await supabase
-      .from('settings').select('value').eq('key', 'ai_settings').single();
-    const aiSettings = aiSettingRow?.value || {};
-
-    if (!aiSettings.enabled) return;
-
-    // Load recent conversation history (last 10 messages)
-    const { data: history } = await supabase
-      .from('messages')
-      .select('content, direction, created_at')
-      .eq('lead_id', lead.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    const conversationHistory = (history || []).reverse().map(m => ({
-      content: m.content,
-      direction: m.direction === 'inbound' ? 'incoming' : 'outgoing',
-    }));
-
-    // Generate AI reply
-    const replyText = await generateReply({
-      customerMessage: content,
-      businessContext: aiSettings.businessContext || '',
-      conversationHistory,
-      customerName: lead?.name || '',
-      phone,
-      leadId: lead?.id || '',
-    });
-
-    if (!replyText) return;
-
-    // Send text reply
-    await sock.sendMessage(jid, { text: replyText });
-
-    // Save outbound message
-    await supabase.from('messages').insert({
-      lead_id: lead.id, phone,
-      content: replyText,
-      direction: 'outbound',
-      is_read: true,
-    });
-    io.emit('message:new', { phone, content: replyText, direction: 'outbound', lead_id: lead.id });
-
-    console.log(`AI replied to ${phone}: ${replyText.substring(0, 60)}...`);
-
-    // ── AUTO-SEND PRODUCT MEDIA ───────────────────────────────────────────────
-    // Detect which products were mentioned in the AI reply
-    const mentionedProducts = detectProductsInReply(replyText);
-    if (mentionedProducts.length > 0 && sock) {
-      console.log(`Sending media for products: ${mentionedProducts.join(', ')}`);
-      // Small delay so text arrives first
-      await new Promise(r => setTimeout(r, 2000));
-      // Send media for each mentioned product (max 2 to avoid spam)
-      for (const product of mentionedProducts.slice(0, 2)) {
-        await sendProductMedia(jid, product);
-      }
-    }
-
-  } catch (err) {
-    if (err.message === 'AI_PAUSED') {
-      console.log(`AI paused for ${phone}`);
-    } else {
-      console.error('AI reply error:', err.message);
+      setMediaMap(m => ({ ...m, [productName]: data.media }))
+      toast.success(`${mediaType === 'image' ? '📸 Image' : '🎥 Video'} uploaded for ${productName}!`)
+    } catch (err) {
+      toast.error('Upload failed: ' + (err.response?.data?.error || err.message))
+    } finally {
+      setUploading(u => ({ ...u, [key]: false }))
     }
   }
+
+  const handleDelete = async (productName, mediaType) => {
+    if (!confirm(`Delete ${mediaType} for ${productName}?`)) return
+    try {
+      await api.delete(`/media/${productName}/${mediaType}`)
+      setMediaMap(m => {
+        const updated = { ...m }
+        if (updated[productName]) {
+          updated[productName] = {
+            ...updated[productName],
+            [`${mediaType}_url`]: null,
+            [`${mediaType}_path`]: null,
+          }
+        }
+        return updated
+      })
+      toast.success('Deleted!')
+    } catch { toast.error('Delete failed') }
+  }
+
+  const filtered = ALL_PRODUCTS.filter(p =>
+    p.toLowerCase().includes(search.toLowerCase())
+  )
+
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>📦 Product Media</h2>
+        <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
+          Upload an image and/or video for each product. After AI recommends a product,
+          the image and video will be sent <strong>automatically</strong> to the customer on WhatsApp.
+        </p>
+        <input
+          className="input"
+          placeholder="🔍 Search product..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ maxWidth: 280 }}
+        />
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner" /></div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map(product => {
+            const media     = mediaMap[product] || {}
+            const imgKey    = `${product}_image`
+            const vidKey    = `${product}_video`
+            const imgLoading = uploading[imgKey]
+            const vidLoading = uploading[vidKey]
+
+            return (
+              <div key={product} className="card" style={{ padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+
+                  {/* Product name */}
+                  <div style={{ minWidth: 160, fontWeight: 600, fontSize: 14 }}>{product}</div>
+
+                  {/* IMAGE slot */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 200 }}>
+                    {media.image_url ? (
+                      <>
+                        <img
+                          src={media.image_url}
+                          alt={product}
+                          style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }}
+                        />
+                        <div>
+                          <div style={{ fontSize: 11, color: 'var(--green)', fontWeight: 600 }}>✅ Image uploaded</div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: 11, padding: '2px 8px' }}
+                              onClick={() => fileRefs.current[imgKey]?.click()}
+                            >Replace</button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: 11, padding: '2px 8px', color: 'var(--red)' }}
+                              onClick={() => handleDelete(product, 'image')}
+                            >Delete</button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 12, border: '1px dashed var(--border)', padding: '8px 14px' }}
+                        onClick={() => fileRefs.current[imgKey]?.click()}
+                        disabled={imgLoading}
+                      >
+                        {imgLoading ? '⏳ Uploading...' : '📸 Upload Image'}
+                      </button>
+                    )}
+                    <input
+                      ref={el => fileRefs.current[imgKey] = el}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={e => handleUpload(product, 'image', e.target.files[0])}
+                    />
+                  </div>
+
+                  {/* VIDEO slot */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 200 }}>
+                    {media.video_url ? (
+                      <>
+                        <div style={{
+                          width: 48, height: 48, borderRadius: 8,
+                          background: 'var(--bg3)', border: '1px solid var(--border)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 22
+                        }}>🎥</div>
+                        <div>
+                          <div style={{ fontSize: 11, color: 'var(--green)', fontWeight: 600 }}>✅ Video uploaded</div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: 11, padding: '2px 8px' }}
+                              onClick={() => fileRefs.current[vidKey]?.click()}
+                            >Replace</button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: 11, padding: '2px 8px', color: 'var(--red)' }}
+                              onClick={() => handleDelete(product, 'video')}
+                            >Delete</button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 12, border: '1px dashed var(--border)', padding: '8px 14px' }}
+                        onClick={() => fileRefs.current[vidKey]?.click()}
+                        disabled={vidLoading}
+                      >
+                        {vidLoading ? '⏳ Uploading...' : '🎥 Upload Video'}
+                      </button>
+                    )}
+                    <input
+                      ref={el => fileRefs.current[vidKey] = el}
+                      type="file"
+                      accept="video/*"
+                      style={{ display: 'none' }}
+                      onChange={e => handleUpload(product, 'video', e.target.files[0])}
+                    />
+                  </div>
+
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-async function sendMessage(phone, text) {
-  if (!sock || !isConnected) throw new Error('WhatsApp not connected');
-  const jid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
-  await sock.sendMessage(jid, { text });
+// ─── Main Settings Page ───────────────────────────────────────────────────────
+function Settings() {
+  const [tab, setTab] = useState('media')
+
+  const tabs = [
+    { id: 'media',    label: '📦 Product Media' },
+    { id: 'ai',       label: '🤖 AI Auto-Reply' },
+    { id: 'rules',    label: '⚡ Auto Rules' },
+    { id: 'stages',   label: '🏷️ Lead Stages' },
+    { id: 'hours',    label: '🕒 Office Hours' },
+    { id: 'account',  label: '👤 Account' },
+  ]
+
+  return (
+    <div>
+      <div className="page-header">
+        <h1 className="page-title">Settings</h1>
+      </div>
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 0, flexWrap: 'wrap' }}>
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              padding: '8px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent',
+              color: tab === t.id ? 'var(--primary)' : 'var(--text2)',
+              fontWeight: tab === t.id ? 700 : 400,
+              fontSize: 13,
+              cursor: 'pointer',
+              marginBottom: -1,
+            }}
+          >{t.label}</button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {tab === 'media'   && <MediaTab />}
+      {tab === 'ai'      && <AITab />}
+      {tab === 'rules'   && <RulesTab />}
+      {tab === 'stages'  && <StagesTab />}
+      {tab === 'hours'   && <HoursTab />}
+      {tab === 'account' && <AccountTab />}
+    </div>
+  )
 }
 
-// Send media manually (from CRM chat panel — future use)
-async function sendMediaToPhone(phone, productName) {
-  if (!sock || !isConnected) throw new Error('WhatsApp not connected');
-  const jid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
-  await sendProductMedia(jid, productName);
+// ─── AI Tab ───────────────────────────────────────────────────────────────────
+function AITab() {
+  const [settings, setSettings] = useState({ enabled: false, mode: 'auto', businessContext: '' })
+  const [saving, setSaving]     = useState(false)
+  const [testing, setTesting]   = useState(false)
+  const [testMsg, setTestMsg]   = useState('')
+  const [testResult, setTestResult] = useState(null)
+
+  useEffect(() => {
+    api.get('/settings').then(r => {
+      if (r.data?.ai_settings) setSettings(r.data.ai_settings)
+    }).catch(() => {})
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await api.patch('/settings/ai_settings', settings)
+      toast.success('AI settings saved!')
+    } catch { toast.error('Save failed') }
+    finally { setSaving(false) }
+  }
+
+  const test = async () => {
+    if (!testMsg.trim()) return
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const { data } = await api.post('/ai/test', { message: testMsg, businessContext: settings.businessContext })
+      setTestResult(data)
+    } catch (err) {
+      setTestResult({ error: err.response?.data?.error || err.message })
+    } finally { setTesting(false) }
+  }
+
+  return (
+    <div style={{ maxWidth: 600 }}>
+      <div className="card">
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>🤖 AI Auto-Reply</div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
+          <input type="checkbox" checked={settings.enabled}
+            onChange={e => setSettings(s => ({ ...s, enabled: e.target.checked }))} />
+          <span style={{ fontWeight: 600 }}>Enable AI Auto-Reply</span>
+        </label>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Business Context</label>
+          <textarea className="input" rows={6}
+            placeholder="Enter your business info, special instructions for AI..."
+            value={settings.businessContext || ''}
+            onChange={e => setSettings(s => ({ ...s, businessContext: e.target.value }))}
+            style={{ width: '100%', resize: 'vertical' }} />
+        </div>
+
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving ? 'Saving...' : 'Save AI Settings'}
+        </button>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>🧪 Test AI Reply</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input className="input" placeholder="Type a test message..."
+            value={testMsg} onChange={e => setTestMsg(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && test()}
+            style={{ flex: 1 }} />
+          <button className="btn btn-primary" onClick={test} disabled={testing}>
+            {testing ? '...' : 'Test'}
+          </button>
+        </div>
+        {testResult && (
+          <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: 12, fontSize: 13 }}>
+            {testResult.error
+              ? <span style={{ color: 'var(--red)' }}>❌ {testResult.error}</span>
+              : <><div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 4 }}>via {testResult.provider} [{testResult.language}]</div>
+                 <div style={{ whiteSpace: 'pre-wrap' }}>{testResult.reply}</div></>
+            }
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
-function getStatus() {
-  return { isConnected, currentQR };
-}
+// ─── Placeholder tabs (keep existing logic if you have separate components) ───
+function RulesTab()   { return <div className="card"><p style={{color:'var(--text2)'}}>Auto reply rules — use existing Rules component here.</p></div> }
+function StagesTab()  { return <div className="card"><p style={{color:'var(--text2)'}}>Lead stages — use existing Stages component here.</p></div> }
+function HoursTab()   { return <div className="card"><p style={{color:'var(--text2)'}}>Office hours — use existing Hours component here.</p></div> }
+function AccountTab() { return <div className="card"><p style={{color:'var(--text2)'}}>Account settings — use existing Account component here.</p></div> }
 
-module.exports = { initWhatsApp, sendMessage, sendMediaToPhone, getStatus };
+export default Settings
