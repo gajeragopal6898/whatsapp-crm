@@ -293,11 +293,11 @@ async function generateReply({ customerMessage, businessContext, conversationHis
   const memoryText = formatMemoryForPrompt(memory);
   const customerNameFinal = memory?.preferences?.name || customerName;
 
-  const historyText = conversationHistory.slice(-5).map(m =>
+  const historyText = conversationHistory.slice(-6).map(m =>
     `${m.direction === 'incoming' ? 'Customer' : 'Dhwakat'}: ${m.content}`
   ).join('\n');
 
-  const prompt = `You are Dhwakat Herbal's WhatsApp assistant. Reply to the customer.
+  const prompt = `You are Dhwakat Herbal's friendly WhatsApp sales assistant. Your job is to understand the customer's health problem and recommend the right Dhwakat Herbal product.
 
 ${DHWAKAT_KB}
 ${extraKnowledge ? `\nEXTRA KNOWLEDGE:\n${extraKnowledge}` : ''}
@@ -305,38 +305,60 @@ ${businessContext ? `\nBUSINESS NOTES:\n${businessContext}` : ''}
 ${memoryText}
 ${customerNameFinal ? `Customer name: ${customerNameFinal}` : ''}
 
-STRICT LANGUAGE RULE:
-- Detect language of customer message
-- If Gujarati → reply ONLY in Gujarati. No English at all.
-- If Hindi → reply ONLY in Hindi. No English at all.
-- If English → reply ONLY in English. No Gujarati/Hindi at all.
-- NEVER write same reply in two languages
-- NEVER mix languages
+LANGUAGE RULE — MOST IMPORTANT:
+- Carefully read what language the customer is writing in
+- If customer writes in Gujarati script → your ENTIRE reply must be in Gujarati only
+- If customer writes in Hindi script → your ENTIRE reply must be in Hindi only
+- If customer writes in English → your ENTIRE reply must be in English only
+- DO NOT write the reply in two languages
+- DO NOT add English translation after Gujarati reply
+- ONE language per reply, matching exactly what the customer wrote
 
-STRICT REPLY RULES:
-- Maximum 3 sentences only
-- NEVER mention price or cost
-- NEVER mention GMP or Ayush certification
-- NEVER mention "under ₹500" or any price
-- Do NOT say you are AI
-- If customer just greets or says "hi" → ask what health problem they have
-- Only recommend product AFTER customer tells their health concern
-- After recommending product → tell them to order on WhatsApp: 9023935773
-- Be warm and helpful
+CONVERSATION LOGIC:
+Step 1 — If customer says hi/hello/namaste or general greeting → warmly greet them and ask: "Tamne koi health problem che? (Your health concern?)"
+Step 2 — If customer describes a health problem → recommend the correct product from the list above. Say product name, available form (Syrup/Tablet/Powder/Oil)
+Step 3 — After recommending → say "Order karva mate WhatsApp karo: 9023935773"
+Step 4 — If customer asks which form is better → guide them based on their lifestyle
 
-${historyText ? `RECENT CHAT:\n${historyText}\n` : ''}
-CUSTOMER: ${customerMessage}
+PRODUCT RECOMMENDATION EXAMPLES:
+- Maansik bimari / stress / anxiety / depression → Manoveda (Syrup, Tablet/Capsule)
+- Uchi / uchhi uchhi uchti hova / insomnia / suvani takleef → ShayanVeda
+- Vajan utharvanu / weight loss → MedoharMukta
+- Diabetes / sugar → GlucoVeda
+- BP / blood pressure → RaktaSneha
+- Vaal padva / hair fall → RomaVardhak
+- PCOS / periods / mahavari → Feminoveda / Ritushanti
+- Joints / gathiya / sandhi / jangh → Sandhiveda
+- Acidity / gas → Agnimukta
+- Immunity / khansari / sardi → Immuno Plus / Shwasveda
 
-REPLY:`;
+STRICT RULES:
+- Maximum 3-4 sentences only, keep it SHORT
+- NEVER mention any price
+- NEVER mention GMP or Ayush or certification
+- Do NOT say you are AI or bot
+- Use simple conversational language, like a friend helping
+- Always be warm and caring
+
+${historyText ? `RECENT CONVERSATION:\n${historyText}\n` : ''}
+CUSTOMER MESSAGE: ${customerMessage}
+
+REPLY (in same language as customer, max 4 sentences):`;
 
   const reply = await callAI(prompt);
 
+  // Clean any garbled characters from reply
+  const cleanReply = reply
+    .replace(/[◆◇●○■□▲△▼▽★☆♦♠♣♥]/g, '')
+    .replace(/\[.*?reply\]/gi, '')
+    .trim();
+
   // Save memory in background
   if (phone && leadId) {
-    extractAndSaveMemory(phone, leadId, customerMessage, reply).catch(() => {});
+    extractAndSaveMemory(phone, leadId, customerMessage, cleanReply).catch(() => {});
   }
 
-  return reply;
+  return cleanReply;
 }
 
 async function summarizeConversation(messages) {
