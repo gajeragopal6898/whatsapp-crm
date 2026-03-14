@@ -17,15 +17,21 @@ const TABS = [
 // ─── AI AUTO-REPLY TAB ────────────────────────────────────────────────────────
 function AITab() {
   const [settings, setSettings] = useState({ enabled: false, mode: 'auto', businessContext: '' })
+  const [apiKeys, setApiKeys]   = useState({ groq: '', gemini: '' })
+  const [apiStatus, setApiStatus] = useState(null)
   const [saving, setSaving]     = useState(false)
+  const [savingKeys, setSavingKeys] = useState(false)
   const [testing, setTesting]   = useState(false)
   const [testMsg, setTestMsg]   = useState('')
   const [testResult, setTestResult] = useState(null)
+  const [showGroq, setShowGroq] = useState(false)
+  const [showGemini, setShowGemini] = useState(false)
 
   useEffect(() => {
     api.get('/settings').then(r => {
       if (r.data?.ai_settings) setSettings(r.data.ai_settings)
     }).catch(() => {})
+    api.get('/ai/status').then(r => setApiStatus(r.data)).catch(() => {})
   }, [])
 
   const save = async () => {
@@ -35,6 +41,18 @@ function AITab() {
       toast.success('AI settings saved!')
     } catch { toast.error('Save failed') }
     finally { setSaving(false) }
+  }
+
+  const saveKeys = async () => {
+    setSavingKeys(true)
+    try {
+      if (apiKeys.groq.trim())   await api.patch('/settings/groq_api_key',   { key: apiKeys.groq.trim() })
+      if (apiKeys.gemini.trim()) await api.patch('/settings/gemini_api_key', { key: apiKeys.gemini.trim() })
+      toast.success('API keys saved! Railway will use these on next deploy.')
+      setApiKeys({ groq: '', gemini: '' })
+      api.get('/ai/status').then(r => setApiStatus(r.data)).catch(() => {})
+    } catch { toast.error('Failed to save keys') }
+    finally { setSavingKeys(false) }
   }
 
   const test = async () => {
@@ -50,29 +68,121 @@ function AITab() {
   }
 
   return (
-    <div style={{ maxWidth: 620 }}>
-      <div className="card">
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>✨ AI Auto-Reply</div>
+    <div style={{ maxWidth: 640 }}>
+
+      {/* ── API Keys ── */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>🔑 AI API Keys</div>
+        <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 16 }}>
+          Groq is primary (14,400 req/day free). Gemini is fallback (1,500 req/day free). Auto-switches when one fails.
+        </div>
+
+        {/* API Status indicators */}
+        {apiStatus && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            {[
+              { key: 'groq',   label: 'Groq API',   limit: '14,400 req/day', link: 'https://console.groq.com' },
+              { key: 'gemini', label: 'Gemini API',  limit: '1,500 req/day',  link: 'https://aistudio.google.com' },
+            ].map(a => (
+              <div key={a.key} style={{ background: 'var(--bg3)', borderRadius: 8, padding: '10px 14px',
+                border: `1px solid ${apiStatus[a.key]?.configured ? 'var(--green)' : 'var(--border)'}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%',
+                    background: apiStatus[a.key]?.configured ? 'var(--green)' : 'var(--red)' }}/>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{a.label}</span>
+                  <span className={`badge ${apiStatus[a.key]?.configured ? 'badge-green' : 'badge-red'}`} style={{ marginLeft: 'auto', fontSize: 10 }}>
+                    {apiStatus[a.key]?.configured ? '✅ Active' : '❌ Not Set'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>
+                  Free: {a.limit} · <a href={a.link} target="_blank" rel="noreferrer"
+                    style={{ color: 'var(--primary)' }}>Get free key →</a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Groq key input */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+            Groq API Key
+            <span style={{ fontWeight: 400, color: 'var(--text2)', marginLeft: 6, fontSize: 11 }}>
+              — get free at console.groq.com
+            </span>
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              className="input"
+              type={showGroq ? 'text' : 'password'}
+              placeholder={apiStatus?.groq?.configured ? '••••••••••••••••  (already set)' : 'gsk_...'}
+              value={apiKeys.groq}
+              onChange={e => setApiKeys(k => ({ ...k, groq: e.target.value }))}
+              style={{ flex: 1, fontFamily: 'monospace', fontSize: 12 }}
+            />
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowGroq(v => !v)}>
+              {showGroq ? '🙈' : '👁'}
+            </button>
+          </div>
+        </div>
+
+        {/* Gemini key input */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+            Gemini API Key
+            <span style={{ fontWeight: 400, color: 'var(--text2)', marginLeft: 6, fontSize: 11 }}>
+              — get free at aistudio.google.com
+            </span>
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              className="input"
+              type={showGemini ? 'text' : 'password'}
+              placeholder={apiStatus?.gemini?.configured ? '••••••••••••••••  (already set)' : 'AIza...'}
+              value={apiKeys.gemini}
+              onChange={e => setApiKeys(k => ({ ...k, gemini: e.target.value }))}
+              style={{ flex: 1, fontFamily: 'monospace', fontSize: 12 }}
+            />
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowGemini(v => !v)}>
+              {showGemini ? '🙈' : '👁'}
+            </button>
+          </div>
+        </div>
+
+        <button className="btn btn-primary" onClick={saveKeys} disabled={savingKeys || (!apiKeys.groq && !apiKeys.gemini)}>
+          {savingKeys ? 'Saving...' : 'Save API Keys'}
+        </button>
+      </div>
+
+      {/* ── AI Settings ── */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>✨ AI Auto-Reply Settings</div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
           <input type="checkbox" checked={!!settings.enabled}
             onChange={e => setSettings(s => ({ ...s, enabled: e.target.checked }))} />
-          <span style={{ fontWeight: 600 }}>Enable AI Auto-Reply</span>
+          <div>
+            <div style={{ fontWeight: 600 }}>Enable AI Auto-Reply</div>
+            <div style={{ fontSize: 12, color: 'var(--text2)' }}>AI will automatically reply to every incoming WhatsApp message</div>
+          </div>
         </label>
 
         <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Mode</label>
+          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Reply Mode</label>
           <select className="input" value={settings.mode || 'auto'}
             onChange={e => setSettings(s => ({ ...s, mode: e.target.value }))}>
-            <option value="auto">Auto — AI replies immediately</option>
-            <option value="semi">Semi — Agent approves before sending</option>
+            <option value="auto">🤖 Auto — AI replies immediately without agent</option>
+            <option value="semi">👤 Semi — Agent reviews AI reply before sending</option>
           </select>
         </div>
 
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Business Context</label>
-          <textarea className="input" rows={6}
-            placeholder="Enter your business info, special instructions for AI..."
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>
+            Tell AI about your business — extra instructions, special products, offers etc.
+          </div>
+          <textarea className="input" rows={5}
+            placeholder="e.g. We offer free delivery on prepaid orders. COD available. Order on WhatsApp: 9023935773..."
             value={settings.businessContext || ''}
             onChange={e => setSettings(s => ({ ...s, businessContext: e.target.value }))}
             style={{ width: '100%', resize: 'vertical' }} />
@@ -83,10 +193,14 @@ function AITab() {
         </button>
       </div>
 
-      <div className="card" style={{ marginTop: 16 }}>
+      {/* ── Test ── */}
+      <div className="card">
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>🧪 Test AI Reply</div>
+        <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
+          Send a test message to see how AI will reply (Gujarati / Hindi / English all work)
+        </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input className="input" placeholder="Type a test message..."
+          <input className="input" placeholder="e.g.  mane stress che  /  hair fall problem  /  मुझे नींद नहीं आती"
             value={testMsg} onChange={e => setTestMsg(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && test()}
             style={{ flex: 1 }} />
@@ -100,9 +214,9 @@ function AITab() {
               ? <span style={{ color: 'var(--red)' }}>❌ {testResult.error}</span>
               : <>
                   <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6 }}>
-                    via {testResult.provider} [{testResult.language}]
+                    via {testResult.provider} · language: {testResult.language}
                   </div>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{testResult.reply}</div>
+                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{testResult.reply}</div>
                 </>
             }
           </div>
