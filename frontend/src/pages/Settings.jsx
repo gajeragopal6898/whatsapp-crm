@@ -598,8 +598,304 @@ function AITab() {
   )
 }
 
+// ─── Knowledge Base Tab ───────────────────────────────────────────────────────
+function KnowledgeTab() {
+  const [docs, setDocs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [form, setForm] = useState({ name: '', content: '', file_type: 'text' })
+  const [apiStatus, setApiStatus] = useState(null)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const [docsRes, statusRes] = await Promise.all([
+        api.get('/ai/knowledge'),
+        api.get('/ai/status')
+      ])
+      setDocs(docsRes.data)
+      setApiStatus(statusRes.data)
+    } catch { toast.error('Failed to load') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    if (!form.name.trim() || !form.content.trim()) return toast.error('Name and content required')
+    try {
+      await api.post('/ai/knowledge', form)
+      toast.success('Knowledge added! AI will now use this.')
+      setShowModal(false)
+      setForm({ name: '', content: '', file_type: 'text' })
+      load()
+    } catch (e) { toast.error(e.response?.data?.error || 'Failed') }
+  }
+
+  const toggle = async (doc) => {
+    try {
+      await api.patch(`/ai/knowledge/${doc.id}`, { is_active: !doc.is_active })
+      setDocs(prev => prev.map(d => d.id === doc.id ? { ...d, is_active: !d.is_active } : d))
+      toast.success(doc.is_active ? 'Disabled' : 'Enabled')
+    } catch { toast.error('Failed') }
+  }
+
+  const del = async (id) => {
+    if (!confirm('Delete this knowledge document?')) return
+    try { await api.delete(`/ai/knowledge/${id}`); toast.success('Deleted'); load() }
+    catch { toast.error('Failed') }
+  }
+
+  return (
+    <div>
+      <div className="page-header" style={{ marginBottom: 16 }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>AI Knowledge Base</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>
+            Upload product info, FAQs, pricing — AI learns from these documents
+          </div>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ Add Knowledge</button>
+      </div>
+
+      {/* API Status */}
+      {apiStatus && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+          {[
+            { key: 'groq', label: 'Groq API', limit: '14,400 req/day', color: apiStatus.groq?.configured ? 'var(--green)' : 'var(--red)' },
+            { key: 'gemini', label: 'Gemini API', limit: '1,500 req/day', color: apiStatus.gemini?.configured ? 'var(--green)' : 'var(--orange)' }
+          ].map(a => (
+            <div key={a.key} className="card" style={{ padding: '12px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.color }}/>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{a.label}</span>
+                <span className={`badge ${apiStatus[a.key]?.configured ? 'badge-green' : 'badge-red'}`} style={{ marginLeft: 'auto' }}>
+                  {apiStatus[a.key]?.configured ? 'Active' : 'Not Set'}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>
+                Free limit: {a.limit} | Auto-switches when limit reached
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Built-in KB notice */}
+      <div style={{ background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 8,
+        padding: '10px 14px', marginBottom: 16, fontSize: 12 }}>
+        <div style={{ fontWeight: 600, color: 'var(--green)', marginBottom: 3 }}>
+          ✅ Dhwakat Herbal Knowledge — Built-in
+        </div>
+        <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>
+          40 products, 18+ categories, conversation scripts, pricing, delivery info — all pre-loaded from your training document.
+          Add extra documents below for additional knowledge.
+        </div>
+      </div>
+
+      {loading ? <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
+       : docs.length === 0 ? (
+        <div className="empty-state">
+          <div className="icon">📚</div>
+          <div style={{ fontWeight: 600 }}>No extra documents yet</div>
+          <p>The built-in Dhwakat Herbal knowledge is already active. Add more documents for extra info.</p>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>Add Document</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {docs.map(doc => (
+            <div key={doc.id} className="card" style={{ padding: '12px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button className={`toggle ${doc.is_active ? 'on' : ''}`} onClick={() => toggle(doc)}/>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>
+                    Type: {doc.file_type} · Added: {new Date(doc.created_at).toLocaleDateString('en-IN')}
+                    {!doc.is_active && <span style={{ color: 'var(--red)', marginLeft: 8 }}>· Disabled</span>}
+                  </div>
+                </div>
+                <button className="btn btn-danger btn-sm" onClick={() => del(doc.id)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showModal && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+          <div className="modal" style={{ maxWidth: 560 }}>
+            <div className="modal-title">Add Knowledge Document</div>
+            <div className="form-row">
+              <label className="label">Document Name *</label>
+              <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. New Product List, FAQ, Pricing 2026" />
+            </div>
+            <div className="form-row">
+              <label className="label">Type</label>
+              <select className="input" value={form.file_type} onChange={e => setForm(f => ({ ...f, file_type: e.target.value }))}>
+                <option value="text">Text / Notes</option>
+                <option value="faq">FAQ</option>
+                <option value="products">Product List</option>
+                <option value="pricing">Pricing</option>
+                <option value="policy">Policy / Terms</option>
+              </select>
+            </div>
+            <div className="form-row">
+              <label className="label">Content * (paste your text, product info, FAQs etc.)</label>
+              <textarea className="input" rows={8} value={form.content}
+                onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
+                placeholder="Paste your content here. The AI will learn from this and use it when replying to customers."
+                style={{ resize: 'vertical' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save}>Add to AI Knowledge</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Customer Memory Tab ──────────────────────────────────────────────────────
+function MemoryTab() {
+  const [leads, setLeads] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [memory, setMemory] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [memLoading, setMemLoading] = useState(false)
+
+  useEffect(() => {
+    api.get('/leads?limit=50').then(r => {
+      setLeads(r.data.data || [])
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [])
+
+  const loadMemory = async (lead) => {
+    setSelected(lead)
+    setMemLoading(true)
+    try {
+      const { data } = await api.get(`/ai/memory/${lead.phone}`)
+      setMemory(data)
+    } catch { setMemory({}) }
+    finally { setMemLoading(false) }
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
+      {/* Lead list */}
+      <div className="card" style={{ padding: 0, height: 'fit-content', maxHeight: 600, overflowY: 'auto' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 13 }}>
+          👥 Select Customer
+        </div>
+        {loading ? <div style={{ padding: 20, textAlign: 'center' }}><div className="spinner"/></div>
+         : leads.map(lead => (
+          <div key={lead.id}
+            onClick={() => loadMemory(lead)}
+            style={{
+              padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
+              background: selected?.id === lead.id ? 'var(--bg3)' : 'transparent',
+              transition: 'background .15s'
+            }}>
+            <div style={{ fontWeight: 500, fontSize: 13 }}>{lead.name || 'Unknown'}</div>
+            <div style={{ fontSize: 11, color: 'var(--text2)' }}>{lead.phone}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Memory display */}
+      <div>
+        {!selected ? (
+          <div className="empty-state card">
+            <div className="icon">🧠</div>
+            <div style={{ fontWeight: 600 }}>Select a customer</div>
+            <p>View AI memory — health concerns, products, preferences stored per customer</p>
+          </div>
+        ) : memLoading ? (
+          <div className="card" style={{ padding: 40, textAlign: 'center' }}><div className="spinner"/></div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="card">
+              <div style={{ fontWeight: 600, marginBottom: 12 }}>🧠 AI Memory — {selected.name || selected.phone}</div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>
+                Phone: {selected.phone} · Lead since: {new Date(selected.created_at).toLocaleDateString('en-IN')}
+              </div>
+
+              {!memory || Object.keys(memory).length === 0 ? (
+                <div style={{ color: 'var(--text2)', fontSize: 13 }}>
+                  No memory yet. AI builds memory automatically as customer conversations happen.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {memory.health_concerns?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>HEALTH CONCERNS</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {memory.health_concerns.map(c => (
+                          <span key={c} className="badge badge-red">{c}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {memory.products_recommended?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>PRODUCTS RECOMMENDED</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {memory.products_recommended.map(p => (
+                          <span key={p} className="badge badge-green">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {memory.order_history?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>ORDER HISTORY</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {memory.order_history.map((o, i) => (
+                          <span key={i} className="badge badge-orange">{o}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {memory.preferences && Object.keys(memory.preferences).length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>PREFERENCES</div>
+                      <div style={{ background: 'var(--bg3)', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+                        {Object.entries(memory.preferences).map(([k, v]) => (
+                          <div key={k}><span style={{ color: 'var(--text2)' }}>{k}:</span> {v}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {memory.conversation_summary && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>LAST SUMMARY</div>
+                      <div style={{ background: 'var(--bg3)', padding: '8px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.6 }}>
+                        {memory.conversation_summary}
+                      </div>
+                    </div>
+                  )}
+                  {memory.last_updated && (
+                    <div style={{ fontSize: 11, color: 'var(--text2)' }}>
+                      Last updated: {new Date(memory.last_updated).toLocaleString('en-IN')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const TABS = [
   { key: 'ai', label: '✨ AI Auto-Reply' },
+  { key: 'knowledge', label: '📚 Knowledge Base' },
+  { key: 'memory', label: '🧠 Customer Memory' },
   { key: 'rules', label: '🤖 Reply Rules' },
   { key: 'stages', label: '📊 Lead Stages' },
   { key: 'users', label: '👥 Team Members' },
@@ -614,13 +910,15 @@ export default function Settings() {
       <div className="page-header">
         <h1 className="page-title">Settings</h1>
       </div>
-      <div className="tabs">
+      <div className="tabs" style={{ flexWrap: 'wrap' }}>
         {TABS.map(t => (
           <button key={t.key} className={`tab ${tab === t.key ? 'active' : ''}`}
             onClick={() => setTab(t.key)}>{t.label}</button>
         ))}
       </div>
       {tab === 'ai' && <AITab />}
+      {tab === 'knowledge' && <KnowledgeTab />}
+      {tab === 'memory' && <MemoryTab />}
       {tab === 'rules' && <RulesTab />}
       {tab === 'stages' && <StagesTab />}
       {tab === 'users' && <UsersTab />}
@@ -628,4 +926,3 @@ export default function Settings() {
     </div>
   )
 }
-// This file already has all tabs including AI - no append needed
