@@ -1,51 +1,56 @@
 require('dotenv').config();
 const express = require('express');
-const http    = require('http');
+const http = require('http');
 const { Server } = require('socket.io');
-const cors    = require('cors');
-const cron    = require('node-cron');
+const cors = require('cors');
+const cron = require('node-cron');
 
-const { initWhatsApp }   = require('./whatsapp');
-const authRoutes         = require('./routes/auth');
-const leadsRoutes        = require('./routes/leads');
-const messagesRoutes     = require('./routes/messages');
-const rulesRoutes        = require('./routes/rules');
-const usersRoutes        = require('./routes/users');
-const settingsRoutes     = require('./routes/settings');
-const whatsappRoutes     = require('./routes/whatsapp');
-const mediaRoutes        = require('./routes/media');       // ← NEW
-const aiRoutes           = require('./routes/ai');          // ← NEW
-const { scheduledJobs }  = require('./jobs');
+const { initWhatsApp } = require('./whatsapp');
+const authRoutes = require('./routes/auth');
+const leadsRoutes = require('./routes/leads');
+const messagesRoutes = require('./routes/messages');
+const rulesRoutes = require('./routes/rules');
+const usersRoutes = require('./routes/users');
+const settingsRoutes = require('./routes/settings');
+const whatsappRoutes = require('./routes/whatsapp');
+const aiRoutes = require('./routes/ai');
+const broadcastRoutes = require('./routes/broadcast');
+const { scheduledJobs } = require('./jobs');
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+].filter(Boolean);
+
 const io = new Server(server, {
-  cors: { origin: process.env.FRONTEND_URL || '*', methods: ['GET', 'POST'] }
+  cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
-app.use(express.json({ limit: '50mb' }));    // ← increased limit for base64 uploads
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(cors({ origin: '*' }));
+app.use(express.json());
 
 // Make io available to routes
 app.set('io', io);
 
 // Routes
-app.use('/api/auth',      authRoutes);
-app.use('/api/leads',     leadsRoutes);
-app.use('/api/messages',  messagesRoutes);
-app.use('/api/rules',     rulesRoutes);
-app.use('/api/users',     usersRoutes);
-app.use('/api/settings',  settingsRoutes);
-app.use('/api/whatsapp',  whatsappRoutes);
-app.use('/api/media',     mediaRoutes);       // ← NEW
-app.use('/api/ai',        aiRoutes);          // ← NEW
+app.use('/api/auth', authRoutes);
+app.use('/api/leads', leadsRoutes);
+app.use('/api/messages', messagesRoutes);
+app.use('/api/rules', rulesRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/broadcast', broadcastRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 
 // Socket.IO
-io.on('connection', socket => {
+io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
 });
