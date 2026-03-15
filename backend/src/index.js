@@ -15,6 +15,7 @@ const settingsRoutes = require('./routes/settings');
 const whatsappRoutes = require('./routes/whatsapp');
 const aiRoutes = require('./routes/ai');
 const broadcastRoutes = require('./routes/broadcast');
+const purchasesRoutes = require('./routes/purchases');
 const { scheduledJobs } = require('./jobs');
 
 const app = express();
@@ -46,6 +47,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/broadcast', broadcastRoutes);
+app.use('/api/purchases', purchasesRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 
