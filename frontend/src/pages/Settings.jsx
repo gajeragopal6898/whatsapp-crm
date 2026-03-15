@@ -1,191 +1,573 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import api from '../lib/api'
 import toast from 'react-hot-toast'
 
-// ─── TABS ─────────────────────────────────────────────────────────────────────
-const TABS = [
-  { key: 'ai',        label: '✨ AI Auto-Reply' },
-  { key: 'media',     label: '📦 Product Media' },
-  { key: 'knowledge', label: '📚 Knowledge Base' },
-  { key: 'memory',    label: '🧠 Customer Memory' },
-  { key: 'rules',     label: '🤖 Reply Rules' },
-  { key: 'stages',    label: '📊 Lead Stages' },
-  { key: 'users',     label: '👥 Team Members' },
-  { key: 'hours',     label: '🕒 Office Hours' },
-]
+// ─── Auto Reply Rules Tab ────────────────────────────────────────────────────
+function RulesTab() {
+  const [rules, setRules] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [form, setForm] = useState({ name: '', type: 'keyword', keywords: '', reply_text: '', is_active: true })
 
-// ─── AI AUTO-REPLY TAB ────────────────────────────────────────────────────────
-function AITab() {
-  const [settings, setSettings] = useState({ enabled: false, mode: 'auto', businessContext: '' })
-  const [apiKeys, setApiKeys]   = useState({ groq: '', gemini: '' })
-  const [apiStatus, setApiStatus] = useState(null)
-  const [saving, setSaving]     = useState(false)
-  const [savingKeys, setSavingKeys] = useState(false)
-  const [testing, setTesting]   = useState(false)
-  const [testMsg, setTestMsg]   = useState('')
-  const [testResult, setTestResult] = useState(null)
-  const [showGroq, setShowGroq] = useState(false)
-  const [showGemini, setShowGemini] = useState(false)
+  const load = async () => {
+    setLoading(true)
+    try { const { data } = await api.get('/rules'); setRules(data) }
+    catch { toast.error('Failed to load rules') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const openNew = () => {
+    setEditing(null)
+    setForm({ name: '', type: 'keyword', keywords: '', reply_text: '', is_active: true })
+    setShowModal(true)
+  }
+
+  const openEdit = (rule) => {
+    setEditing(rule)
+    setForm({
+      name: rule.name, type: rule.type,
+      keywords: (rule.keywords || []).join(', '),
+      reply_text: rule.reply_text, is_active: rule.is_active
+    })
+    setShowModal(true)
+  }
+
+  const save = async () => {
+    if (!form.name.trim() || !form.reply_text.trim()) return toast.error('Name and reply text are required')
+    const payload = {
+      name: form.name, type: form.type, reply_text: form.reply_text, is_active: form.is_active,
+      keywords: form.type === 'keyword' ? form.keywords.split(',').map(k => k.trim()).filter(Boolean) : []
+    }
+    try {
+      if (editing) await api.patch(`/rules/${editing.id}`, payload)
+      else await api.post('/rules', payload)
+      toast.success(editing ? 'Rule updated' : 'Rule created')
+      setShowModal(false); load()
+    } catch { toast.error('Failed to save rule') }
+  }
+
+  const toggle = async (rule) => {
+    try {
+      await api.patch(`/rules/${rule.id}`, { is_active: !rule.is_active })
+      setRules(prev => prev.map(r => r.id === rule.id ? { ...r, is_active: !r.is_active } : r))
+    } catch { toast.error('Failed') }
+  }
+
+  const del = async (id) => {
+    if (!confirm('Delete this rule?')) return
+    try { await api.delete(`/rules/${id}`); toast.success('Deleted'); load() }
+    catch { toast.error('Failed to delete') }
+  }
+
+  const typeLabel = { keyword: '🔑 Keyword', welcome: '👋 Welcome', away: '🌙 Away', menu: '📋 Menu' }
+
+  return (
+    <div>
+      <div className="page-header" style={{ marginBottom: 16 }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>Auto-Reply Rules</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>
+            Automatically reply to customers based on trigger type
+          </div>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={openNew}>+ New Rule</button>
+      </div>
+
+      {loading ? <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
+       : rules.length === 0 ? (
+        <div className="empty-state">
+          <div className="icon">🤖</div>
+          <div style={{ fontWeight: 600 }}>No rules yet</div>
+          <p>Create auto-reply rules to respond to customers automatically</p>
+          <button className="btn btn-primary btn-sm" onClick={openNew}>Create First Rule</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {rules.map(rule => (
+            <div key={rule.id} className="card" style={{ padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <button className={`toggle ${rule.is_active ? 'on' : ''}`} onClick={() => toggle(rule)}/>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{rule.name}</span>
+                    <span className="badge badge-blue">{typeLabel[rule.type] || rule.type}</span>
+                    {!rule.is_active && <span className="badge badge-gray">Inactive</span>}
+                    {rule.trigger_count > 0 && (
+                      <span style={{ fontSize: 11, color: 'var(--text2)', marginLeft: 'auto' }}>
+                        Triggered {rule.trigger_count} times
+                      </span>
+                    )}
+                  </div>
+                  {rule.type === 'keyword' && rule.keywords?.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+                      {rule.keywords.map(k => (
+                        <span key={k} style={{ background: 'var(--bg3)', padding: '2px 8px',
+                          borderRadius: 99, fontSize: 11, color: 'var(--text2)' }}>{k}</span>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--text2)', background: 'var(--bg3)',
+                    padding: '6px 10px', borderRadius: 6, lineHeight: 1.5 }}>
+                    {rule.reply_text}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(rule)}>Edit</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => del(rule.id)}>Del</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showModal && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+          <div className="modal">
+            <div className="modal-title">{editing ? 'Edit Rule' : 'New Auto-Reply Rule'}</div>
+            <div className="form-row">
+              <label className="label">Rule Name *</label>
+              <input className="input" placeholder="e.g. Price Enquiry Reply"
+                value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div className="form-row">
+              <label className="label">Trigger Type *</label>
+              <select className="input" value={form.type}
+                onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                <option value="keyword">🔑 Keyword Match — triggers when message contains keyword</option>
+                <option value="welcome">👋 Welcome — triggers for first message from new contact</option>
+                <option value="away">🌙 Away — triggers outside office hours</option>
+                <option value="menu">📋 Menu — sends options menu</option>
+              </select>
+            </div>
+            {form.type === 'keyword' && (
+              <div className="form-row">
+                <label className="label">Keywords (comma separated) *</label>
+                <input className="input" placeholder="price, cost, rate, how much"
+                  value={form.keywords} onChange={e => setForm(f => ({ ...f, keywords: e.target.value }))} />
+                <span style={{ fontSize: 11, color: 'var(--text2)', marginTop: 3 }}>
+                  Rule triggers when any of these words appear in the message
+                </span>
+              </div>
+            )}
+            <div className="form-row">
+              <label className="label">Reply Message *</label>
+              <textarea className="input" rows={4}
+                placeholder="Hello! Our prices start from ₹500. For details, please share your requirements."
+                value={form.reply_text}
+                onChange={e => setForm(f => ({ ...f, reply_text: e.target.value }))}
+                style={{ resize: 'vertical' }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <button className={`toggle ${form.is_active ? 'on' : ''}`}
+                onClick={() => setForm(f => ({ ...f, is_active: !f.is_active }))}/>
+              <span style={{ fontSize: 13 }}>{form.is_active ? 'Active — will send replies' : 'Inactive — disabled'}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save}>
+                {editing ? 'Update Rule' : 'Create Rule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Stages Tab ───────────────────────────────────────────────────────────────
+function StagesTab() {
+  const [stages, setStages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [form, setForm] = useState({ name: '', color: '#4f8ef7' })
+
+  const COLORS = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a855f7','#06b6d4','#ec4899','#84cc16']
+
+  const load = async () => {
+    setLoading(true)
+    try { const { data } = await api.get('/settings/stages'); setStages(data) }
+    catch { toast.error('Failed to load stages') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    if (!form.name.trim()) return toast.error('Name required')
+    try {
+      if (editing) await api.patch(`/settings/stages/${editing.id}`, form)
+      else await api.post('/settings/stages', { ...form, order_index: stages.length + 1 })
+      toast.success('Saved'); setShowModal(false); load()
+    } catch { toast.error('Failed') }
+  }
+
+  const del = async (id) => {
+    if (!confirm('Delete stage? Leads in this stage will have no stage.')) return
+    try { await api.delete(`/settings/stages/${id}`); toast.success('Deleted'); load() }
+    catch { toast.error('Failed') }
+  }
+
+  return (
+    <div>
+      <div className="page-header" style={{ marginBottom: 16 }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>Lead Stages</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>Manage your lead pipeline stages</div>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => { setEditing(null); setForm({ name: '', color: '#4f8ef7' }); setShowModal(true) }}>+ Add Stage</button>
+      </div>
+
+      {loading ? <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
+       : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {stages.map((stage, i) => (
+            <div key={stage.id} className="card" style={{ padding: '12px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', background: stage.color, flexShrink: 0 }}/>
+                <span style={{ fontWeight: 500, flex: 1 }}>{stage.name}</span>
+                <span style={{ fontSize: 11, color: 'var(--text2)' }}>Order: {i + 1}</span>
+                {stage.is_default && <span className="badge badge-green">Default</span>}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setEditing(stage); setForm({ name: stage.name, color: stage.color }); setShowModal(true) }}>Edit</button>
+                  {!stage.is_default && <button className="btn btn-danger btn-sm" onClick={() => del(stage.id)}>Del</button>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showModal && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+          <div className="modal">
+            <div className="modal-title">{editing ? 'Edit Stage' : 'New Stage'}</div>
+            <div className="form-row">
+              <label className="label">Stage Name *</label>
+              <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. In Negotiation" />
+            </div>
+            <div className="form-row">
+              <label className="label">Color</label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {COLORS.map(c => (
+                  <button key={c} onClick={() => setForm(f => ({ ...f, color: c }))}
+                    style={{ width: 28, height: 28, borderRadius: '50%', background: c, border: form.color === c ? '3px solid white' : '2px solid transparent', cursor: 'pointer' }}/>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save}>{editing ? 'Update' : 'Create'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Users Tab ────────────────────────────────────────────────────────────────
+function UsersTab() {
+  const [users, setUsers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'agent' })
+
+  const load = async () => {
+    setLoading(true)
+    try { const { data } = await api.get('/users'); setUsers(data) }
+    catch { toast.error('Failed to load users') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    if (!form.name || !form.email || !form.password) return toast.error('All fields required')
+    try {
+      await api.post('/users', form)
+      toast.success('User created'); setShowModal(false); load()
+    } catch (e) { toast.error(e.response?.data?.error || 'Failed') }
+  }
+
+  const toggleActive = async (user) => {
+    try {
+      await api.patch(`/users/${user.id}`, { is_active: !user.is_active })
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_active: !u.is_active } : u))
+      toast.success(user.is_active ? 'User deactivated' : 'User activated')
+    } catch { toast.error('Failed') }
+  }
+
+  return (
+    <div>
+      <div className="page-header" style={{ marginBottom: 16 }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>Team Members</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>Manage users and their roles</div>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => { setForm({ name: '', email: '', password: '', role: 'agent' }); setShowModal(true) }}>+ Add User</button>
+      </div>
+
+      {loading ? <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
+       : (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+                {users.map(u => (
+                  <tr key={u.id}>
+                    <td style={{ fontWeight: 500 }}>{u.name}</td>
+                    <td style={{ color: 'var(--text2)', fontSize: 12 }}>{u.email}</td>
+                    <td><span className={`badge ${u.role === 'admin' ? 'badge-purple' : 'badge-blue'}`} style={{ textTransform: 'capitalize' }}>{u.role}</span></td>
+                    <td><span className={`badge ${u.is_active ? 'badge-green' : 'badge-red'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
+                    <td>
+                      <button className="btn btn-ghost btn-sm" onClick={() => toggleActive(u)}>
+                        {u.is_active ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {showModal && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+          <div className="modal">
+            <div className="modal-title">Add Team Member</div>
+            <div className="form-row"><label className="label">Full Name *</label>
+              <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="John Doe" /></div>
+            <div className="form-row"><label className="label">Email *</label>
+              <input className="input" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="john@example.com" /></div>
+            <div className="form-row"><label className="label">Password *</label>
+              <input className="input" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="••••••••" /></div>
+            <div className="form-row"><label className="label">Role *</label>
+              <select className="input" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+                <option value="agent">Agent — can manage leads & messages</option>
+                <option value="admin">Admin — full access</option>
+              </select></div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save}>Create User</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Office Hours Tab ─────────────────────────────────────────────────────────
+function OfficeHoursTab() {
+  const [settings, setSettings] = useState({ enabled: false, start: '09:00', end: '18:00', days: [1,2,3,4,5] })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
   useEffect(() => {
     api.get('/settings').then(r => {
-      if (r.data?.ai_settings) setSettings(r.data.ai_settings)
-    }).catch(() => {})
-    api.get('/ai/status').then(r => setApiStatus(r.data)).catch(() => {})
+      if (r.data.office_hours) setSettings(r.data.office_hours)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  const toggleDay = (d) => {
+    setSettings(s => ({ ...s, days: s.days.includes(d) ? s.days.filter(x => x !== d) : [...s.days, d] }))
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await api.patch('/settings/office_hours', settings)
+      toast.success('Office hours saved')
+    } catch { toast.error('Failed') }
+    finally { setSaving(false) }
+  }
+
+  if (loading) return <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Office Hours</div>
+      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 20 }}>
+        Away message sends automatically outside these hours
+      </div>
+
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 13, fontWeight: 500 }}>Enable office hours</span>
+          <button className={`toggle ${settings.enabled ? 'on' : ''}`}
+            onClick={() => setSettings(s => ({ ...s, enabled: !s.enabled }))}/>
+        </div>
+
+        <div className="form-grid">
+          <div className="form-row">
+            <label className="label">Opens at</label>
+            <input className="input" type="time" value={settings.start}
+              onChange={e => setSettings(s => ({ ...s, start: e.target.value }))} />
+          </div>
+          <div className="form-row">
+            <label className="label">Closes at</label>
+            <input className="input" type="time" value={settings.end}
+              onChange={e => setSettings(s => ({ ...s, end: e.target.value }))} />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Working Days</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {DAYS.map((d, i) => (
+              <button key={i} onClick={() => toggleDay(i)}
+                style={{
+                  width: 38, height: 38, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                  fontSize: 12, fontWeight: 500, transition: 'all .15s',
+                  background: settings.days.includes(i) ? 'var(--primary)' : 'var(--bg3)',
+                  color: settings.days.includes(i) ? '#fff' : 'var(--text2)'
+                }}>{d}</button>
+            ))}
+          </div>
+        </div>
+
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving ? 'Saving...' : 'Save Office Hours'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Settings Page ───────────────────────────────────────────────────────
+// ─── AI Settings Tab ──────────────────────────────────────────────────────────
+function AITab() {
+  const [settings, setSettings] = useState({
+    enabled: false, mode: 'semi', business_context: '',
+    reply_delay: 3, max_auto_replies: 5,
+    escalate_keywords: 'human, agent, person, manager'
+  })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testMsg, setTestMsg] = useState('')
+  const [testReply, setTestReply] = useState('')
+  const [testing, setTesting] = useState(false)
+
+  useEffect(() => {
+    api.get('/ai/settings').then(r => {
+      setSettings({ ...r.data, escalate_keywords: (r.data.escalate_keywords || []).join(', ') })
+    }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
   const save = async () => {
     setSaving(true)
     try {
-      await api.patch('/settings/ai_settings', settings)
+      await api.post('/ai/settings', {
+        ...settings,
+        escalate_keywords: settings.escalate_keywords.split(',').map(k => k.trim()).filter(Boolean)
+      })
       toast.success('AI settings saved!')
-    } catch { toast.error('Save failed') }
+    } catch { toast.error('Failed to save') }
     finally { setSaving(false) }
   }
 
-  const saveKeys = async () => {
-    setSavingKeys(true)
+  const testAI = async () => {
+    if (!testMsg.trim()) return toast.error('Enter a test message')
+    setTesting(true); setTestReply('')
     try {
-      if (apiKeys.groq.trim())   await api.patch('/settings/groq_api_key',   { key: apiKeys.groq.trim() })
-      if (apiKeys.gemini.trim()) await api.patch('/settings/gemini_api_key', { key: apiKeys.gemini.trim() })
-      toast.success('API keys saved! Railway will use these on next deploy.')
-      setApiKeys({ groq: '', gemini: '' })
-      api.get('/ai/status').then(r => setApiStatus(r.data)).catch(() => {})
-    } catch { toast.error('Failed to save keys') }
-    finally { setSavingKeys(false) }
+      const { data } = await api.post('/ai/preview', { lead_id: 'test', message: testMsg })
+      setTestReply(data.reply)
+    } catch (e) { toast.error(e.response?.data?.error || 'AI test failed — check your Gemini API key') }
+    finally { setTesting(false) }
   }
 
-  const test = async () => {
-    if (!testMsg.trim()) return
-    setTesting(true)
-    setTestResult(null)
-    try {
-      const { data } = await api.post('/ai/test', { message: testMsg, businessContext: settings.businessContext })
-      setTestResult(data)
-    } catch (err) {
-      setTestResult({ error: err.response?.data?.error || err.message })
-    } finally { setTesting(false) }
-  }
+  if (loading) return <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
 
   return (
-    <div style={{ maxWidth: 640 }}>
-
-      {/* ── API Keys ── */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>🔑 AI API Keys</div>
-        <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 16 }}>
-          Groq is primary (14,400 req/day free). Gemini is fallback (1,500 req/day free). Auto-switches when one fails.
-        </div>
-
-        {/* API Status indicators */}
-        {apiStatus && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-            {[
-              { key: 'groq',   label: 'Groq API',   limit: '14,400 req/day', link: 'https://console.groq.com' },
-              { key: 'gemini', label: 'Gemini API',  limit: '1,500 req/day',  link: 'https://aistudio.google.com' },
-            ].map(a => (
-              <div key={a.key} style={{ background: 'var(--bg3)', borderRadius: 8, padding: '10px 14px',
-                border: `1px solid ${apiStatus[a.key]?.configured ? 'var(--green)' : 'var(--border)'}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%',
-                    background: apiStatus[a.key]?.configured ? 'var(--green)' : 'var(--red)' }}/>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{a.label}</span>
-                  <span className={`badge ${apiStatus[a.key]?.configured ? 'badge-green' : 'badge-red'}`} style={{ marginLeft: 'auto', fontSize: 10 }}>
-                    {apiStatus[a.key]?.configured ? '✅ Active' : '❌ Not Set'}
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>
-                  Free: {a.limit} · <a href={a.link} target="_blank" rel="noreferrer"
-                    style={{ color: 'var(--primary)' }}>Get free key →</a>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Groq key input */}
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
-            Groq API Key
-            <span style={{ fontWeight: 400, color: 'var(--text2)', marginLeft: 6, fontSize: 11 }}>
-              — get free at console.groq.com
-            </span>
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              className="input"
-              type={showGroq ? 'text' : 'password'}
-              placeholder={apiStatus?.groq?.configured ? '••••••••••••••••  (already set)' : 'gsk_...'}
-              value={apiKeys.groq}
-              onChange={e => setApiKeys(k => ({ ...k, groq: e.target.value }))}
-              style={{ flex: 1, fontFamily: 'monospace', fontSize: 12 }}
-            />
-            <button className="btn btn-ghost btn-sm" onClick={() => setShowGroq(v => !v)}>
-              {showGroq ? '🙈' : '👁'}
-            </button>
-          </div>
-        </div>
-
-        {/* Gemini key input */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
-            Gemini API Key
-            <span style={{ fontWeight: 400, color: 'var(--text2)', marginLeft: 6, fontSize: 11 }}>
-              — get free at aistudio.google.com
-            </span>
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              className="input"
-              type={showGemini ? 'text' : 'password'}
-              placeholder={apiStatus?.gemini?.configured ? '••••••••••••••••  (already set)' : 'AIza...'}
-              value={apiKeys.gemini}
-              onChange={e => setApiKeys(k => ({ ...k, gemini: e.target.value }))}
-              style={{ flex: 1, fontFamily: 'monospace', fontSize: 12 }}
-            />
-            <button className="btn btn-ghost btn-sm" onClick={() => setShowGemini(v => !v)}>
-              {showGemini ? '🙈' : '👁'}
-            </button>
-          </div>
-        </div>
-
-        <button className="btn btn-primary" onClick={saveKeys} disabled={savingKeys || (!apiKeys.groq && !apiKeys.gemini)}>
-          {savingKeys ? 'Saving...' : 'Save API Keys'}
-        </button>
+    <div style={{ maxWidth: 600 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>AI Auto-Reply (Google Gemini)</div>
+      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 20 }}>
+        Free AI that replies to customers automatically in their language
       </div>
 
-      {/* ── AI Settings ── */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>✨ AI Auto-Reply Settings</div>
+      {/* API Key notice */}
+      <div style={{ background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 8,
+        padding: '10px 14px', marginBottom: 20, fontSize: 12 }}>
+        <div style={{ fontWeight: 600, color: 'var(--green)', marginBottom: 4 }}>🔑 Setup Required — Free Gemini API Key</div>
+        <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>
+          1. Go to <strong style={{color:'var(--text)'}}>aistudio.google.com</strong> → Sign in with Google<br/>
+          2. Click <strong style={{color:'var(--text)'}}>Get API Key</strong> → Create API Key → Copy it<br/>
+          3. Go to <strong style={{color:'var(--text)'}}>Railway</strong> → Variables → Add: <code style={{background:'var(--bg3)',padding:'1px 5px',borderRadius:3}}>GEMINI_API_KEY</code> = your key<br/>
+          4. Railway will redeploy automatically — then enable AI below
+        </div>
+      </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
-          <input type="checkbox" checked={!!settings.enabled}
-            onChange={e => setSettings(s => ({ ...s, enabled: e.target.checked }))} />
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontWeight: 600 }}>Enable AI Auto-Reply</div>
-            <div style={{ fontSize: 12, color: 'var(--text2)' }}>AI will automatically reply to every incoming WhatsApp message</div>
+            <div style={{ fontWeight: 500, fontSize: 13 }}>Enable AI Auto-Reply</div>
+            <div style={{ fontSize: 11, color: 'var(--text2)' }}>AI will reply to all incoming messages</div>
           </div>
-        </label>
+          <button className={`toggle ${settings.enabled ? 'on' : ''}`}
+            onClick={() => setSettings(s => ({ ...s, enabled: !s.enabled }))}/>
+        </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Reply Mode</label>
-          <select className="input" value={settings.mode || 'auto'}
+        <div className="form-row">
+          <label className="label">AI Mode</label>
+          <select className="input" value={settings.mode}
             onChange={e => setSettings(s => ({ ...s, mode: e.target.value }))}>
-            <option value="auto">🤖 Auto — AI replies immediately without agent</option>
-            <option value="semi">👤 Semi — Agent reviews AI reply before sending</option>
+            <option value="full">🤖 Full Auto — AI sends replies automatically</option>
+            <option value="semi">👁 Semi-Auto — AI suggests, agent approves before sending</option>
           </select>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Business Context</label>
-          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>
-            Tell AI about your business — extra instructions, special products, offers etc.
+        <div className="form-row">
+          <label className="label">Business Context (train your AI)</label>
+          <textarea className="input" rows={5} value={settings.business_context}
+            onChange={e => setSettings(s => ({ ...s, business_context: e.target.value }))}
+            placeholder={`Tell AI about your business. Example:\nWe are ABC Traders, selling electrical goods in Surat.\nOur products: Cables, Switches, Panels.\nPrices start from ₹500.\nWorking hours: Mon-Sat 9am-6pm.\nContact: 9876543210`}
+            style={{ resize: 'vertical' }} />
+          <span style={{ fontSize: 11, color: 'var(--text2)', marginTop: 3 }}>
+            The more detail you add, the better AI replies will be
+          </span>
+        </div>
+
+        <div className="form-grid">
+          <div className="form-row">
+            <label className="label">Reply Delay (seconds)</label>
+            <select className="input" value={settings.reply_delay}
+              onChange={e => setSettings(s => ({ ...s, reply_delay: +e.target.value }))}>
+              <option value={0}>Instant</option>
+              <option value={3}>3 seconds</option>
+              <option value={5}>5 seconds</option>
+              <option value={10}>10 seconds</option>
+              <option value={30}>30 seconds</option>
+            </select>
           </div>
-          <textarea className="input" rows={5}
-            placeholder="e.g. We offer free delivery on prepaid orders. COD available. Order on WhatsApp: 9023935773..."
-            value={settings.businessContext || ''}
-            onChange={e => setSettings(s => ({ ...s, businessContext: e.target.value }))}
-            style={{ width: '100%', resize: 'vertical' }} />
+          <div className="form-row">
+            <label className="label">Max AI Replies per Lead</label>
+            <select className="input" value={settings.max_auto_replies}
+              onChange={e => setSettings(s => ({ ...s, max_auto_replies: +e.target.value }))}>
+              <option value={3}>3 replies then stop</option>
+              <option value={5}>5 replies then stop</option>
+              <option value={10}>10 replies then stop</option>
+              <option value={0}>Unlimited</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="form-row">
+          <label className="label">Escalation Keywords (comma separated)</label>
+          <input className="input" value={settings.escalate_keywords}
+            onChange={e => setSettings(s => ({ ...s, escalate_keywords: e.target.value }))}
+            placeholder="human, agent, person, manager, owner" />
+          <span style={{ fontSize: 11, color: 'var(--text2)', marginTop: 3 }}>
+            When customer types these words, AI stops and notifies agent
+          </span>
         </div>
 
         <button className="btn btn-primary" onClick={save} disabled={saving}>
@@ -193,32 +575,22 @@ function AITab() {
         </button>
       </div>
 
-      {/* ── Test ── */}
-      <div className="card">
-        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>🧪 Test AI Reply</div>
-        <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
-          Send a test message to see how AI will reply (Gujarati / Hindi / English all work)
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input className="input" placeholder="e.g.  mane stress che  /  hair fall problem  /  मुझे नींद नहीं आती"
+      {/* Test AI */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 13 }}>🧪 Test AI Reply</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <input className="input" placeholder="Type a test customer message..."
             value={testMsg} onChange={e => setTestMsg(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && test()}
-            style={{ flex: 1 }} />
-          <button className="btn btn-primary" onClick={test} disabled={testing}>
-            {testing ? '...' : 'Test'}
+            onKeyDown={e => e.key === 'Enter' && testAI()} />
+          <button className="btn btn-primary" onClick={testAI} disabled={testing} style={{ flexShrink: 0 }}>
+            {testing ? <span className="spinner" style={{width:14,height:14}}/> : 'Test'}
           </button>
         </div>
-        {testResult && (
-          <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: 12, fontSize: 13 }}>
-            {testResult.error
-              ? <span style={{ color: 'var(--red)' }}>❌ {testResult.error}</span>
-              : <>
-                  <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6 }}>
-                    via {testResult.provider} · language: {testResult.language}
-                  </div>
-                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{testResult.reply}</div>
-                </>
-            }
+        {testReply && (
+          <div style={{ background: 'var(--bg3)', padding: '10px 14px', borderRadius: 8,
+            fontSize: 13, lineHeight: 1.6, color: 'var(--green)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 4 }}>AI Reply:</div>
+            {testReply}
           </div>
         )}
       </div>
@@ -226,177 +598,12 @@ function AITab() {
   )
 }
 
-// ─── PRODUCT MEDIA TAB ────────────────────────────────────────────────────────
-const ALL_PRODUCTS = [
-  'Manoveda','ShayanVeda','Shiroveda','Manomukta',
-  'Smritiveda','Immuno Plus','Shwasveda','Allergy-GO',
-  'Hridayaveda','RaktaSneha','GlucoVeda',
-  'MedoharMukta','Poshakveda',
-  'Agnimukta','Rechaka Veda','Yakritshuddhi','Raktaveda','GudaShanti',
-  'Sandhiveda',
-  'RomaVardhak','AcnoVeda','NikharVeda',
-  'Feminoveda','Ritushanti','Lohaveda','Vajraveda',
-  'Satvik Multivita','GO_Lith',
-  'Ashwagandha','Shilajit Cap','Amla','Brahmi','Neem','Musli',
-  'Isabgool','Harad','Moringa','Triphala',
-]
-
-function MediaTab() {
-  const [mediaMap, setMediaMap]   = useState({})
-  const [loading, setLoading]     = useState(true)
-  const [uploading, setUploading] = useState({})
-  const [search, setSearch]       = useState('')
-  const fileRefs = useRef({})
-
-  const load = async () => {
-    setLoading(true)
-    try {
-      const { data } = await api.get('/media')
-      const map = {}
-      ;(data || []).forEach(m => { map[m.product_name] = m })
-      setMediaMap(map)
-    } catch { toast.error('Failed to load media') }
-    finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() }, [])
-
-  const handleUpload = async (productName, mediaType, file) => {
-    if (!file) return
-    const key = `${productName}_${mediaType}`
-    setUploading(u => ({ ...u, [key]: true }))
-    try {
-      const base64 = await new Promise((res, rej) => {
-        const r = new FileReader()
-        r.onload = () => res(r.result.split(',')[1])
-        r.onerror = rej
-        r.readAsDataURL(file)
-      })
-      const { data } = await api.post('/media/upload', {
-        productName, mediaType, fileBase64: base64, fileName: file.name, mimeType: file.type,
-      })
-      setMediaMap(m => ({ ...m, [productName]: data.media }))
-      toast.success(`${mediaType === 'image' ? '📸 Image' : '🎥 Video'} uploaded for ${productName}!`)
-    } catch (err) {
-      toast.error('Upload failed: ' + (err.response?.data?.error || err.message))
-    } finally {
-      setUploading(u => ({ ...u, [key]: false }))
-    }
-  }
-
-  const handleDelete = async (productName, mediaType) => {
-    if (!confirm(`Delete ${mediaType} for ${productName}?`)) return
-    try {
-      await api.delete(`/media/${productName}/${mediaType}`)
-      setMediaMap(m => {
-        const updated = { ...m }
-        if (updated[productName]) {
-          updated[productName] = { ...updated[productName], [`${mediaType}_url`]: null, [`${mediaType}_path`]: null }
-        }
-        return updated
-      })
-      toast.success('Deleted!')
-    } catch { toast.error('Delete failed') }
-  }
-
-  const filtered = ALL_PRODUCTS.filter(p => p.toLowerCase().includes(search.toLowerCase()))
-
-  return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>📦 Product Media</div>
-        <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>
-          Upload image & video per product. After AI recommends a product, media is sent <strong>automatically</strong> to the customer.
-        </div>
-        <input className="input" placeholder="🔍 Search product..."
-          value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 280 }} />
-      </div>
-
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner" /></div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {filtered.map(product => {
-            const media      = mediaMap[product] || {}
-            const imgKey     = `${product}_image`
-            const vidKey     = `${product}_video`
-            const imgLoading = uploading[imgKey]
-            const vidLoading = uploading[vidKey]
-            return (
-              <div key={product} className="card" style={{ padding: '12px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ minWidth: 160, fontWeight: 600, fontSize: 13 }}>{product}</div>
-
-                  {/* IMAGE */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 180 }}>
-                    {media.image_url ? (
-                      <>
-                        <img src={media.image_url} alt={product}
-                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
-                        <div>
-                          <div style={{ fontSize: 11, color: 'var(--green)', fontWeight: 600 }}>✅ Image</div>
-                          <div style={{ display: 'flex', gap: 4, marginTop: 3 }}>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 7px' }}
-                              onClick={() => fileRefs.current[imgKey]?.click()}>Replace</button>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 7px', color: 'var(--red)' }}
-                              onClick={() => handleDelete(product, 'image')}>Del</button>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <button className="btn btn-ghost btn-sm"
-                        style={{ fontSize: 11, border: '1px dashed var(--border)', padding: '6px 12px' }}
-                        onClick={() => fileRefs.current[imgKey]?.click()} disabled={imgLoading}>
-                        {imgLoading ? '⏳...' : '📸 Image'}
-                      </button>
-                    )}
-                    <input ref={el => fileRefs.current[imgKey] = el} type="file" accept="image/*"
-                      style={{ display: 'none' }} onChange={e => handleUpload(product, 'image', e.target.files[0])} />
-                  </div>
-
-                  {/* VIDEO */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 180 }}>
-                    {media.video_url ? (
-                      <>
-                        <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--bg3)',
-                          border: '1px solid var(--border)', display: 'flex', alignItems: 'center',
-                          justifyContent: 'center', fontSize: 20 }}>🎥</div>
-                        <div>
-                          <div style={{ fontSize: 11, color: 'var(--green)', fontWeight: 600 }}>✅ Video</div>
-                          <div style={{ display: 'flex', gap: 4, marginTop: 3 }}>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 7px' }}
-                              onClick={() => fileRefs.current[vidKey]?.click()}>Replace</button>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 7px', color: 'var(--red)' }}
-                              onClick={() => handleDelete(product, 'video')}>Del</button>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <button className="btn btn-ghost btn-sm"
-                        style={{ fontSize: 11, border: '1px dashed var(--border)', padding: '6px 12px' }}
-                        onClick={() => fileRefs.current[vidKey]?.click()} disabled={vidLoading}>
-                        {vidLoading ? '⏳...' : '🎥 Video'}
-                      </button>
-                    )}
-                    <input ref={el => fileRefs.current[vidKey] = el} type="file" accept="video/*"
-                      style={{ display: 'none' }} onChange={e => handleUpload(product, 'video', e.target.files[0])} />
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── KNOWLEDGE BASE TAB ───────────────────────────────────────────────────────
+// ─── Knowledge Base Tab ───────────────────────────────────────────────────────
 function KnowledgeTab() {
-  const [docs, setDocs]           = useState([])
-  const [loading, setLoading]     = useState(true)
+  const [docs, setDocs] = useState([])
+  const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [form, setForm]           = useState({ name: '', content: '', file_type: 'text' })
+  const [form, setForm] = useState({ name: '', content: '', file_type: 'text' })
   const [apiStatus, setApiStatus] = useState(null)
 
   const load = async () => {
@@ -418,7 +625,7 @@ function KnowledgeTab() {
     if (!form.name.trim() || !form.content.trim()) return toast.error('Name and content required')
     try {
       await api.post('/ai/knowledge', form)
-      toast.success('Knowledge added!')
+      toast.success('Knowledge added! AI will now use this.')
       setShowModal(false)
       setForm({ name: '', content: '', file_type: 'text' })
       load()
@@ -451,34 +658,38 @@ function KnowledgeTab() {
         <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ Add Knowledge</button>
       </div>
 
+      {/* API Status */}
       {apiStatus && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
           {[
-            { key: 'groq',   label: 'Groq API',   limit: '14,400 req/day' },
-            { key: 'gemini', label: 'Gemini API',  limit: '1,500 req/day'  },
+            { key: 'groq', label: 'Groq API', limit: '14,400 req/day', color: apiStatus.groq?.configured ? 'var(--green)' : 'var(--red)' },
+            { key: 'gemini', label: 'Gemini API', limit: '1,500 req/day', color: apiStatus.gemini?.configured ? 'var(--green)' : 'var(--orange)' }
           ].map(a => (
             <div key={a.key} className="card" style={{ padding: '12px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%',
-                  background: apiStatus[a.key]?.configured ? 'var(--green)' : 'var(--red)' }}/>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.color }}/>
                 <span style={{ fontWeight: 600, fontSize: 13 }}>{a.label}</span>
                 <span className={`badge ${apiStatus[a.key]?.configured ? 'badge-green' : 'badge-red'}`} style={{ marginLeft: 'auto' }}>
                   {apiStatus[a.key]?.configured ? 'Active' : 'Not Set'}
                 </span>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>
-                Free limit: {a.limit} · Auto-switches when limit reached
+                Free limit: {a.limit} | Auto-switches when limit reached
               </div>
             </div>
           ))}
         </div>
       )}
 
+      {/* Built-in KB notice */}
       <div style={{ background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 8,
         padding: '10px 14px', marginBottom: 16, fontSize: 12 }}>
-        <div style={{ fontWeight: 600, color: 'var(--green)', marginBottom: 3 }}>✅ Dhwakat Herbal Knowledge — Built-in</div>
+        <div style={{ fontWeight: 600, color: 'var(--green)', marginBottom: 3 }}>
+          ✅ Dhwakat Herbal Knowledge — Built-in
+        </div>
         <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>
-          40 products, 18+ categories, conversation scripts — all pre-loaded. Add extra documents below for additional knowledge.
+          40 products, 18+ categories, conversation scripts, pricing, delivery info — all pre-loaded from your training document.
+          Add extra documents below for additional knowledge.
         </div>
       </div>
 
@@ -487,7 +698,7 @@ function KnowledgeTab() {
         <div className="empty-state">
           <div className="icon">📚</div>
           <div style={{ fontWeight: 600 }}>No extra documents yet</div>
-          <p>Built-in Dhwakat Herbal knowledge is already active. Add more for extra info.</p>
+          <p>The built-in Dhwakat Herbal knowledge is already active. Add more documents for extra info.</p>
           <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>Add Document</button>
         </div>
       ) : (
@@ -530,10 +741,10 @@ function KnowledgeTab() {
               </select>
             </div>
             <div className="form-row">
-              <label className="label">Content * (paste text, product info, FAQs etc.)</label>
+              <label className="label">Content * (paste your text, product info, FAQs etc.)</label>
               <textarea className="input" rows={8} value={form.content}
                 onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
-                placeholder="Paste your content here. The AI will learn from this."
+                placeholder="Paste your content here. The AI will learn from this and use it when replying to customers."
                 style={{ resize: 'vertical' }} />
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -547,12 +758,12 @@ function KnowledgeTab() {
   )
 }
 
-// ─── CUSTOMER MEMORY TAB ──────────────────────────────────────────────────────
+// ─── Customer Memory Tab ──────────────────────────────────────────────────────
 function MemoryTab() {
-  const [leads, setLeads]       = useState([])
+  const [leads, setLeads] = useState([])
   const [selected, setSelected] = useState(null)
-  const [memory, setMemory]     = useState(null)
-  const [loading, setLoading]   = useState(true)
+  const [memory, setMemory] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [memLoading, setMemLoading] = useState(false)
 
   useEffect(() => {
@@ -574,21 +785,27 @@ function MemoryTab() {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
-      <div className="card" style={{ padding: 0, maxHeight: 600, overflowY: 'auto' }}>
+      {/* Lead list */}
+      <div className="card" style={{ padding: 0, height: 'fit-content', maxHeight: 600, overflowY: 'auto' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 13 }}>
           👥 Select Customer
         </div>
         {loading ? <div style={{ padding: 20, textAlign: 'center' }}><div className="spinner"/></div>
          : leads.map(lead => (
-          <div key={lead.id} onClick={() => loadMemory(lead)}
-            style={{ padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
-              background: selected?.id === lead.id ? 'var(--bg3)' : 'transparent', transition: 'background .15s' }}>
+          <div key={lead.id}
+            onClick={() => loadMemory(lead)}
+            style={{
+              padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
+              background: selected?.id === lead.id ? 'var(--bg3)' : 'transparent',
+              transition: 'background .15s'
+            }}>
             <div style={{ fontWeight: 500, fontSize: 13 }}>{lead.name || 'Unknown'}</div>
             <div style={{ fontSize: 11, color: 'var(--text2)' }}>{lead.phone}</div>
           </div>
         ))}
       </div>
 
+      {/* Memory display */}
       <div>
         {!selected ? (
           <div className="empty-state card">
@@ -599,64 +816,75 @@ function MemoryTab() {
         ) : memLoading ? (
           <div className="card" style={{ padding: 40, textAlign: 'center' }}><div className="spinner"/></div>
         ) : (
-          <div className="card">
-            <div style={{ fontWeight: 600, marginBottom: 12 }}>🧠 AI Memory — {selected.name || selected.phone}</div>
-            <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>
-              Phone: {selected.phone} · Lead since: {new Date(selected.created_at).toLocaleDateString('en-IN')}
-            </div>
-            {!memory || Object.keys(memory).length === 0 ? (
-              <div style={{ color: 'var(--text2)', fontSize: 13 }}>No memory yet. AI builds memory automatically from conversations.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {memory.health_concerns?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>HEALTH CONCERNS</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {memory.health_concerns.map(c => <span key={c} className="badge badge-red">{c}</span>)}
-                    </div>
-                  </div>
-                )}
-                {memory.products_recommended?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>PRODUCTS RECOMMENDED</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {memory.products_recommended.map(p => <span key={p} className="badge badge-green">{p}</span>)}
-                    </div>
-                  </div>
-                )}
-                {memory.order_history?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>ORDER HISTORY</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {memory.order_history.map((o, i) => <span key={i} className="badge badge-orange">{o}</span>)}
-                    </div>
-                  </div>
-                )}
-                {memory.preferences && Object.keys(memory.preferences).length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>PREFERENCES</div>
-                    <div style={{ background: 'var(--bg3)', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
-                      {Object.entries(memory.preferences).map(([k, v]) => (
-                        <div key={k}><span style={{ color: 'var(--text2)' }}>{k}:</span> {String(v)}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {memory.conversation_summary && (
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>LAST SUMMARY</div>
-                    <div style={{ background: 'var(--bg3)', padding: '8px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.6 }}>
-                      {memory.conversation_summary}
-                    </div>
-                  </div>
-                )}
-                {memory.last_updated && (
-                  <div style={{ fontSize: 11, color: 'var(--text2)' }}>
-                    Last updated: {new Date(memory.last_updated).toLocaleString('en-IN')}
-                  </div>
-                )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="card">
+              <div style={{ fontWeight: 600, marginBottom: 12 }}>🧠 AI Memory — {selected.name || selected.phone}</div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>
+                Phone: {selected.phone} · Lead since: {new Date(selected.created_at).toLocaleDateString('en-IN')}
               </div>
-            )}
+
+              {!memory || Object.keys(memory).length === 0 ? (
+                <div style={{ color: 'var(--text2)', fontSize: 13 }}>
+                  No memory yet. AI builds memory automatically as customer conversations happen.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {memory.health_concerns?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>HEALTH CONCERNS</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {memory.health_concerns.map(c => (
+                          <span key={c} className="badge badge-red">{c}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {memory.products_recommended?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>PRODUCTS RECOMMENDED</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {memory.products_recommended.map(p => (
+                          <span key={p} className="badge badge-green">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {memory.order_history?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>ORDER HISTORY</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {memory.order_history.map((o, i) => (
+                          <span key={i} className="badge badge-orange">{o}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {memory.preferences && Object.keys(memory.preferences).length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>PREFERENCES</div>
+                      <div style={{ background: 'var(--bg3)', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+                        {Object.entries(memory.preferences).map(([k, v]) => (
+                          <div key={k}><span style={{ color: 'var(--text2)' }}>{k}:</span> {v}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {memory.conversation_summary && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 5 }}>LAST SUMMARY</div>
+                      <div style={{ background: 'var(--bg3)', padding: '8px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.6 }}>
+                        {memory.conversation_summary}
+                      </div>
+                    </div>
+                  )}
+                  {memory.last_updated && (
+                    <div style={{ fontSize: 11, color: 'var(--text2)' }}>
+                      Last updated: {new Date(memory.last_updated).toLocaleString('en-IN')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -664,491 +892,205 @@ function MemoryTab() {
   )
 }
 
-// ─── REPLY RULES TAB ──────────────────────────────────────────────────────────
-function RulesTab() {
-  const [rules, setRules]         = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editing, setEditing]     = useState(null)
-  const [form, setForm]           = useState({ type: 'keyword', keywords: '', reply_text: '', is_active: true })
+// ─── Admin Numbers Tab ────────────────────────────────────────────────────────
+function AdminNumbersTab() {
+  const [numbers, setNumbers] = useState([])
+  const [workingHours, setWorkingHours] = useState({ start: '10:00', end: '21:00', enabled: true })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [newPhone, setNewPhone] = useState('')
+  const [newName, setNewName] = useState('')
 
-  const load = async () => {
-    setLoading(true)
-    try { const { data } = await api.get('/rules'); setRules(data) }
-    catch { toast.error('Failed to load rules') }
-    finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() }, [])
-
-  const openAdd = () => {
-    setEditing(null)
-    setForm({ type: 'keyword', keywords: '', reply_text: '', is_active: true })
-    setShowModal(true)
-  }
-
-  const openEdit = (rule) => {
-    setEditing(rule)
-    setForm({
-      type: rule.type,
-      keywords: (rule.keywords || []).join(', '),
-      reply_text: rule.reply_text,
-      is_active: rule.is_active,
-    })
-    setShowModal(true)
-  }
-
-  const save = async () => {
-    if (!form.reply_text.trim()) return toast.error('Reply text is required')
-    const payload = {
-      type: form.type,
-      keywords: form.type === 'keyword' ? form.keywords.split(',').map(k => k.trim()).filter(Boolean) : [],
-      reply_text: form.reply_text,
-      is_active: form.is_active,
+  // Generate time slots from 6am to 11pm in 30min intervals
+  const timeSlots = []
+  for (let h = 6; h <= 23; h++) {
+    for (let m of [0, 30]) {
+      if (h === 23 && m === 30) continue
+      const hh = String(h).padStart(2, '0')
+      const mm = String(m).padStart(2, '0')
+      const label = new Date(`2000-01-01T${hh}:${mm}`).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
+      timeSlots.push({ value: `${hh}:${mm}`, label })
     }
-    try {
-      if (editing) {
-        await api.patch(`/rules/${editing.id}`, payload)
-        toast.success('Rule updated!')
-      } else {
-        await api.post('/rules', payload)
-        toast.success('Rule created!')
-      }
-      setShowModal(false)
-      load()
-    } catch (e) { toast.error(e.response?.data?.error || 'Failed') }
   }
-
-  const del = async (id) => {
-    if (!confirm('Delete this rule?')) return
-    try { await api.delete(`/rules/${id}`); toast.success('Deleted'); load() }
-    catch { toast.error('Failed') }
-  }
-
-  const toggle = async (rule) => {
-    try {
-      await api.patch(`/rules/${rule.id}`, { is_active: !rule.is_active })
-      setRules(prev => prev.map(r => r.id === rule.id ? { ...r, is_active: !r.is_active } : r))
-    } catch { toast.error('Failed') }
-  }
-
-  const typeLabel = { keyword: '🔑 Keyword', welcome: '👋 Welcome', away: '🌙 Away' }
-
-  return (
-    <div>
-      <div className="page-header" style={{ marginBottom: 16 }}>
-        <div>
-          <div style={{ fontWeight: 600 }}>Auto Reply Rules</div>
-          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>
-            Automatically reply when keywords match, new lead arrives, or outside office hours
-          </div>
-        </div>
-        <button className="btn btn-primary btn-sm" onClick={openAdd}>+ Add Rule</button>
-      </div>
-
-      {loading ? <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
-       : rules.length === 0 ? (
-        <div className="empty-state">
-          <div className="icon">🤖</div>
-          <div style={{ fontWeight: 600 }}>No rules yet</div>
-          <p>Create welcome messages, keyword replies, and away messages</p>
-          <button className="btn btn-primary btn-sm" onClick={openAdd}>Add Rule</button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {rules.map(rule => (
-            <div key={rule.id} className="card" style={{ padding: '12px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <button className={`toggle ${rule.is_active ? 'on' : ''}`} onClick={() => toggle(rule)} style={{ marginTop: 2 }}/>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span className="badge badge-blue" style={{ fontSize: 11 }}>{typeLabel[rule.type] || rule.type}</span>
-                    {rule.trigger_count > 0 && (
-                      <span style={{ fontSize: 11, color: 'var(--text2)' }}>Triggered {rule.trigger_count} times</span>
-                    )}
-                    {!rule.is_active && <span className="badge badge-gray" style={{ fontSize: 11 }}>Disabled</span>}
-                  </div>
-                  {rule.keywords?.length > 0 && (
-                    <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>
-                      Keywords: {rule.keywords.join(', ')}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 13, background: 'var(--bg3)', padding: '6px 10px', borderRadius: 6, lineHeight: 1.5 }}>
-                    {rule.reply_text}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(rule)}>Edit</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => del(rule.id)}>Delete</button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {showModal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: 520 }}>
-            <div className="modal-title">{editing ? 'Edit Rule' : 'Add Auto Reply Rule'}</div>
-            <div className="form-row">
-              <label className="label">Rule Type</label>
-              <select className="input" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-                <option value="keyword">Keyword Match — reply when message contains keyword</option>
-                <option value="welcome">Welcome — reply to every new lead's first message</option>
-                <option value="away">Away — reply when outside office hours</option>
-              </select>
-            </div>
-            {form.type === 'keyword' && (
-              <div className="form-row">
-                <label className="label">Keywords (comma separated)</label>
-                <input className="input" value={form.keywords}
-                  onChange={e => setForm(f => ({ ...f, keywords: e.target.value }))}
-                  placeholder="e.g. price, cost, how much, order" />
-              </div>
-            )}
-            <div className="form-row">
-              <label className="label">Reply Text *</label>
-              <textarea className="input" rows={4} value={form.reply_text}
-                onChange={e => setForm(f => ({ ...f, reply_text: e.target.value }))}
-                placeholder="Message to send automatically..." style={{ resize: 'vertical' }} />
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.is_active}
-                onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))} />
-              <span style={{ fontSize: 13 }}>Active</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save}>{editing ? 'Update' : 'Create Rule'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── LEAD STAGES TAB ──────────────────────────────────────────────────────────
-function StagesTab() {
-  const [stages, setStages]       = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editing, setEditing]     = useState(null)
-  const [form, setForm]           = useState({ name: '', color: '#6366f1', is_default: false })
 
   const load = async () => {
     setLoading(true)
-    try { const { data } = await api.get('/settings/stages'); setStages(data) }
-    catch { toast.error('Failed to load stages') }
-    finally { setLoading(false) }
+    try {
+      const { data } = await api.get('/settings')
+      setNumbers(data.admin_numbers?.numbers || [{ phone: '6353360578', name: 'Shreyas Ramani', notify: true }])
+      if (data.admin_numbers?.working_hours) setWorkingHours(data.admin_numbers.working_hours)
+    } catch {} finally { setLoading(false) }
   }
 
   useEffect(() => { load() }, [])
 
-  const openAdd = () => { setEditing(null); setForm({ name: '', color: '#6366f1', is_default: false }); setShowModal(true) }
-  const openEdit = (s) => { setEditing(s); setForm({ name: s.name, color: s.color || '#6366f1', is_default: s.is_default }); setShowModal(true) }
-
-  const save = async () => {
-    if (!form.name.trim()) return toast.error('Stage name is required')
-    try {
-      if (editing) {
-        await api.patch(`/settings/stages/${editing.id}`, form)
-        toast.success('Stage updated!')
-      } else {
-        await api.post('/settings/stages', form)
-        toast.success('Stage created!')
-      }
-      setShowModal(false)
-      load()
-    } catch (e) { toast.error(e.response?.data?.error || 'Failed') }
-  }
-
-  const del = async (id) => {
-    if (!confirm('Delete this stage?')) return
-    try { await api.delete(`/settings/stages/${id}`); toast.success('Deleted'); load() }
-    catch { toast.error('Failed — stage may be in use') }
-  }
-
-  return (
-    <div>
-      <div className="page-header" style={{ marginBottom: 16 }}>
-        <div>
-          <div style={{ fontWeight: 600 }}>Lead Stages</div>
-          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>
-            Manage pipeline stages for your leads
-          </div>
-        </div>
-        <button className="btn btn-primary btn-sm" onClick={openAdd}>+ Add Stage</button>
-      </div>
-
-      {loading ? <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
-       : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {stages.map((stage, i) => (
-            <div key={stage.id} className="card" style={{ padding: '12px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 12, height: 12, borderRadius: '50%', background: stage.color || '#6366f1', flexShrink: 0 }}/>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>
-                    {stage.name}
-                    {stage.is_default && <span className="badge badge-green" style={{ marginLeft: 8, fontSize: 10 }}>Default</span>}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text2)' }}>Order: {stage.order_index ?? i + 1}</div>
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(stage)}>Edit</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => del(stage.id)}>Delete</button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {stages.length === 0 && (
-            <div className="empty-state">
-              <div className="icon">📊</div>
-              <div style={{ fontWeight: 600 }}>No stages yet</div>
-              <p>Create pipeline stages like New, Contacted, Qualified, Closed</p>
-              <button className="btn btn-primary btn-sm" onClick={openAdd}>Add Stage</button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {showModal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: 400 }}>
-            <div className="modal-title">{editing ? 'Edit Stage' : 'Add Lead Stage'}</div>
-            <div className="form-row">
-              <label className="label">Stage Name *</label>
-              <input className="input" value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. New, Contacted, Qualified, Closed" />
-            </div>
-            <div className="form-row">
-              <label className="label">Color</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input type="color" value={form.color}
-                  onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
-                  style={{ width: 40, height: 36, border: 'none', borderRadius: 6, cursor: 'pointer', background: 'none' }} />
-                <span style={{ fontSize: 13, color: 'var(--text2)' }}>{form.color}</span>
-              </div>
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.is_default}
-                onChange={e => setForm(f => ({ ...f, is_default: e.target.checked }))} />
-              <span style={{ fontSize: 13 }}>Set as default stage for new leads</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save}>{editing ? 'Update' : 'Create Stage'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── TEAM MEMBERS TAB ─────────────────────────────────────────────────────────
-function UsersTab() {
-  const [users, setUsers]         = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editing, setEditing]     = useState(null)
-  const [form, setForm]           = useState({ name: '', email: '', password: '', role: 'agent' })
-
-  const load = async () => {
-    setLoading(true)
-    try { const { data } = await api.get('/users'); setUsers(data) }
-    catch { toast.error('Failed to load team') }
-    finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() }, [])
-
-  const openAdd = () => { setEditing(null); setForm({ name: '', email: '', password: '', role: 'agent' }); setShowModal(true) }
-  const openEdit = (u) => { setEditing(u); setForm({ name: u.name, email: u.email, password: '', role: u.role }); setShowModal(true) }
-
-  const save = async () => {
-    if (!form.name.trim() || !form.email.trim()) return toast.error('Name and email required')
-    if (!editing && !form.password.trim()) return toast.error('Password required for new user')
-    try {
-      const payload = { name: form.name, email: form.email, role: form.role }
-      if (form.password) payload.password = form.password
-      if (editing) {
-        await api.patch(`/users/${editing.id}`, payload)
-        toast.success('User updated!')
-      } else {
-        await api.post('/users', { ...payload, password: form.password })
-        toast.success('User created!')
-      }
-      setShowModal(false)
-      load()
-    } catch (e) { toast.error(e.response?.data?.error || 'Failed') }
-  }
-
-  const deactivate = async (id) => {
-    if (!confirm('Deactivate this user?')) return
-    try { await api.delete(`/users/${id}`); toast.success('User deactivated'); load() }
-    catch { toast.error('Failed') }
-  }
-
-  return (
-    <div>
-      <div className="page-header" style={{ marginBottom: 16 }}>
-        <div>
-          <div style={{ fontWeight: 600 }}>Team Members</div>
-          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>Manage agents and admin users</div>
-        </div>
-        <button className="btn btn-primary btn-sm" onClick={openAdd}>+ Add Member</button>
-      </div>
-
-      {loading ? <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
-       : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {users.map(u => (
-            <div key={u.id} className="card" style={{ padding: '12px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--bg3)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 700, fontSize: 14, color: 'var(--primary)', flexShrink: 0 }}>
-                  {u.name?.[0]?.toUpperCase()}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>
-                    {u.name}
-                    {!u.is_active && <span className="badge badge-red" style={{ marginLeft: 8, fontSize: 10 }}>Inactive</span>}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text2)' }}>{u.email}</div>
-                </div>
-                <span className={`badge ${u.role === 'admin' ? 'badge-purple' : 'badge-blue'}`} style={{ fontSize: 11 }}>
-                  {u.role}
-                </span>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(u)}>Edit</button>
-                  {u.is_active && <button className="btn btn-danger btn-sm" onClick={() => deactivate(u.id)}>Remove</button>}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {showModal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: 420 }}>
-            <div className="modal-title">{editing ? 'Edit Member' : 'Add Team Member'}</div>
-            <div className="form-row">
-              <label className="label">Full Name *</label>
-              <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name" />
-            </div>
-            <div className="form-row">
-              <label className="label">Email *</label>
-              <input className="input" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@example.com" />
-            </div>
-            <div className="form-row">
-              <label className="label">{editing ? 'New Password (leave blank to keep)' : 'Password *'}</label>
-              <input className="input" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={editing ? 'Leave blank to keep current' : 'Set password'} />
-            </div>
-            <div className="form-row">
-              <label className="label">Role</label>
-              <select className="input" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
-                <option value="agent">Agent</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save}>{editing ? 'Update' : 'Add Member'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── OFFICE HOURS TAB ─────────────────────────────────────────────────────────
-function OfficeHoursTab() {
-  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  const [settings, setSettings] = useState({ enabled: false, days: [1,2,3,4,5], start: '09:00', end: '18:00' })
-  const [saving, setSaving]     = useState(false)
-
-  useEffect(() => {
-    api.get('/settings').then(r => {
-      if (r.data?.office_hours) setSettings(r.data.office_hours)
-    }).catch(() => {})
-  }, [])
-
-  const toggleDay = (d) => {
-    setSettings(s => ({
-      ...s,
-      days: s.days.includes(d) ? s.days.filter(x => x !== d) : [...s.days, d].sort()
-    }))
-  }
-
-  const save = async () => {
+  const saveAll = async (updatedNumbers, updatedHours) => {
     setSaving(true)
     try {
-      await api.patch('/settings/office_hours', settings)
-      toast.success('Office hours saved!')
-    } catch { toast.error('Save failed') }
+      await api.patch('/settings/admin_numbers', {
+        numbers: updatedNumbers,
+        working_hours: updatedHours
+      })
+      toast.success('Settings saved!')
+    } catch { toast.error('Failed to save') }
     finally { setSaving(false) }
   }
 
+  const toggleNotify = (phone) => {
+    const updated = numbers.map(n => n.phone === phone ? { ...n, notify: !n.notify } : n)
+    setNumbers(updated)
+  }
+
+  const updateName = (phone, name) => {
+    setNumbers(prev => prev.map(n => n.phone === phone ? { ...n, name } : n))
+  }
+
+  const add = () => {
+    if (!newPhone.trim()) return toast.error('Enter phone number')
+    if (!newName.trim()) return toast.error('Enter name')
+    const phone = newPhone.replace(/\D/g, '')
+    if (phone.length < 10) return toast.error('Enter valid phone number')
+    if (numbers.find(n => n.phone === phone)) return toast.error('Number already added')
+    const updated = [...numbers, { phone, name: newName.trim(), notify: true }]
+    setNumbers(updated)
+    setNewPhone(''); setNewName('')
+  }
+
+  const remove = (phone) => {
+    if (numbers.length === 1) return toast.error('At least one number required')
+    setNumbers(prev => prev.filter(n => n.phone !== phone))
+  }
+
   return (
-    <div style={{ maxWidth: 500 }}>
-      <div className="card">
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>🕒 Office Hours</div>
+    <div style={{ maxWidth: 520 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>📱 Admin Notification Settings</div>
+      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 20 }}>
+        Choose who gets notified when a customer needs human help. Toggle notification on/off per person.
+      </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, cursor: 'pointer' }}>
-          <input type="checkbox" checked={!!settings.enabled}
-            onChange={e => setSettings(s => ({ ...s, enabled: e.target.checked }))} />
-          <div>
-            <div style={{ fontWeight: 600 }}>Enable Office Hours</div>
-            <div style={{ fontSize: 12, color: 'var(--text2)' }}>Away message sent automatically outside working hours</div>
-          </div>
-        </label>
+      {loading ? <div style={{ padding: 20, textAlign: 'center' }}><div className="spinner"/></div> : (
+        <>
+          {/* Numbers list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+            {numbers.map((admin, i) => (
+              <div key={admin.phone} className="card" style={{ padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: admin.notify ? 'var(--primary)' : 'var(--bg3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700, color: admin.notify ? '#fff' : 'var(--text2)',
+                    flexShrink: 0, fontSize: 14, transition: 'all .2s'
+                  }}>{admin.name?.[0]?.toUpperCase()}</div>
 
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Working Days</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {DAY_NAMES.map((name, i) => (
-              <button key={i} onClick={() => toggleDay(i)}
-                style={{
-                  padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  border: '1px solid var(--border)',
-                  background: settings.days?.includes(i) ? 'var(--primary)' : 'var(--bg3)',
-                  color: settings.days?.includes(i) ? '#fff' : 'var(--text2)',
-                  transition: 'all .15s',
-                }}>{name}</button>
+                  <div style={{ flex: 1 }}>
+                    <input className="input" value={admin.name}
+                      onChange={e => updateName(admin.phone, e.target.value)}
+                      style={{ marginBottom: 4, fontSize: 13, fontWeight: 600 }}
+                      placeholder="Name" />
+                    <div style={{ fontSize: 11, color: 'var(--text2)', paddingLeft: 2 }}>
+                      📱 +{admin.phone}
+                      {i === 0 && <span className="badge badge-blue" style={{ marginLeft: 6, fontSize: 10 }}>Primary</span>}
+                    </div>
+                  </div>
+
+                  {/* Notify toggle */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                    <button className={`toggle ${admin.notify ? 'on' : ''}`}
+                      onClick={() => toggleNotify(admin.phone)} />
+                    <span style={{ fontSize: 10, color: admin.notify ? 'var(--green)' : 'var(--text2)' }}>
+                      {admin.notify ? 'Notify ON' : 'Notify OFF'}
+                    </span>
+                  </div>
+
+                  <button onClick={() => remove(admin.phone)}
+                    style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 16, flexShrink: 0, padding: 4 }}>
+                    ✕
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
-        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Start Time</label>
-            <input type="time" className="input" value={settings.start || '09:00'}
-              onChange={e => setSettings(s => ({ ...s, start: e.target.value }))} />
+          {/* Add new */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 10, fontSize: 13 }}>+ Add Number</div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label className="label">Name</label>
+                <input className="input" value={newName} onChange={e => setNewName(e.target.value)}
+                  placeholder="e.g. Rahul" onKeyDown={e => e.key === 'Enter' && add()} />
+              </div>
+              <div className="form-row">
+                <label className="label">WhatsApp Number</label>
+                <input className="input" value={newPhone} onChange={e => setNewPhone(e.target.value)}
+                  placeholder="e.g. 9876543210" onKeyDown={e => e.key === 'Enter' && add()} />
+              </div>
+            </div>
+            <button className="btn btn-ghost" onClick={add} style={{ width: '100%', marginTop: 4 }}>
+              + Add
+            </button>
           </div>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>End Time</label>
-            <input type="time" className="input" value={settings.end || '18:00'}
-              onChange={e => setSettings(s => ({ ...s, end: e.target.value }))} />
-          </div>
-        </div>
 
-        <button className="btn btn-primary" onClick={save} disabled={saving}>
-          {saving ? 'Saving...' : 'Save Office Hours'}
-        </button>
-      </div>
+          {/* Working Hours */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>🕐 Working Hours</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--text2)' }}>
+                  {workingHours.enabled ? 'Active' : 'Disabled'}
+                </span>
+                <button className={`toggle ${workingHours.enabled ? 'on' : ''}`}
+                  onClick={() => setWorkingHours(h => ({ ...h, enabled: !h.enabled }))} />
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>
+              Outside these hours, customers get an away message and no agent alert is sent.
+            </div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label className="label">Opens at</label>
+                <select className="input" value={workingHours.start}
+                  onChange={e => setWorkingHours(h => ({ ...h, start: e.target.value }))}>
+                  {timeSlots.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div className="form-row">
+                <label className="label">Closes at</label>
+                <select className="input" value={workingHours.end}
+                  onChange={e => setWorkingHours(h => ({ ...h, end: e.target.value }))}>
+                  {timeSlots.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>
+              Currently set: {timeSlots.find(t => t.value === workingHours.start)?.label || workingHours.start} — {timeSlots.find(t => t.value === workingHours.end)?.label || workingHours.end}
+            </div>
+          </div>
+
+          {/* Save button */}
+          <button className="btn btn-primary" style={{ width: '100%' }}
+            onClick={() => saveAll(numbers, workingHours)} disabled={saving}>
+            {saving ? 'Saving...' : '💾 Save All Settings'}
+          </button>
+        </>
+      )}
     </div>
   )
 }
 
-// ─── MAIN SETTINGS PAGE ───────────────────────────────────────────────────────
-function Settings() {
+const TABS = [
+  { key: 'ai', label: '✨ AI Auto-Reply' },
+  { key: 'knowledge', label: '📚 Knowledge Base' },
+  { key: 'memory', label: '🧠 Customer Memory' },
+  { key: 'admins', label: '📱 Admin Numbers' },
+  { key: 'rules', label: '🤖 Reply Rules' },
+  { key: 'stages', label: '📊 Lead Stages' },
+  { key: 'users', label: '👥 Team Members' },
+  { key: 'hours', label: '🕐 Office Hours' },
+]
+
+export default function Settings() {
   const [tab, setTab] = useState('ai')
 
   return (
@@ -1162,16 +1104,14 @@ function Settings() {
             onClick={() => setTab(t.key)}>{t.label}</button>
         ))}
       </div>
-      {tab === 'ai'        && <AITab />}
-      {tab === 'media'     && <MediaTab />}
+      {tab === 'ai' && <AITab />}
       {tab === 'knowledge' && <KnowledgeTab />}
-      {tab === 'memory'    && <MemoryTab />}
-      {tab === 'rules'     && <RulesTab />}
-      {tab === 'stages'    && <StagesTab />}
-      {tab === 'users'     && <UsersTab />}
-      {tab === 'hours'     && <OfficeHoursTab />}
+      {tab === 'memory' && <MemoryTab />}
+      {tab === 'admins' && <AdminNumbersTab />}
+      {tab === 'rules' && <RulesTab />}
+      {tab === 'stages' && <StagesTab />}
+      {tab === 'users' && <UsersTab />}
+      {tab === 'hours' && <OfficeHoursTab />}
     </div>
   )
 }
-
-export default Settings
