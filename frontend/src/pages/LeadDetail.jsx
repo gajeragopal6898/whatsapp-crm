@@ -344,6 +344,12 @@ export default function LeadDetail() {
           {/* AI Memory */}
           <AIMemoryPanel phone={lead.phone} />
 
+          {/* Purchase History */}
+          <PurchasePanel leadId={id} phone={lead.phone} />
+
+          {/* Flow State */}
+          <FlowStatePanel phone={lead.phone} />
+
           {/* Notes */}
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13 }}>
@@ -384,6 +390,168 @@ export default function LeadDetail() {
 
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Purchase Panel ───────────────────────────────────────────────────────────
+function PurchasePanel({ leadId, phone }) {
+  const [purchases, setPurchases] = useState([])
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ product_name: '', quantity: '', purchase_date: new Date().toISOString().slice(0,10), course_days: 60, notes: '' })
+
+  const PRODUCTS = ['Manoveda','ShayanVeda','Shiroveda','Smritiveda','Allergy-GO','Immuno Plus','Shwasveda',
+    'Hridayaveda','RaktaSneha','GlucoVeda','MedoharMukta','Poshakveda','Agnimukta','Rechaka Veda',
+    'GudaShanti','Yakritshuddhi','Raktaveda','AcnoVeda','NikharVeda','RomaVardhak','Feminoveda',
+    'Ritushanti','Lohaveda','Vajraveda','Manomukta','Sandhiveda','GO_Lith','Satvik Multivita']
+
+  useEffect(() => {
+    api.get(`/purchases/lead/${leadId}`).then(r => setPurchases(r.data)).catch(() => {})
+  }, [leadId])
+
+  const save = async () => {
+    if (!form.product_name) return toast.error('Select a product')
+    try {
+      await api.post('/purchases', { ...form, lead_id: leadId, phone })
+      toast.success('Purchase recorded! Follow-up messages scheduled automatically.')
+      setShowForm(false)
+      const { data } = await api.get(`/purchases/lead/${leadId}`)
+      setPurchases(data)
+    } catch (e) { toast.error(e.response?.data?.error || 'Failed') }
+  }
+
+  const del = async (id) => {
+    if (!confirm('Delete this purchase?')) return
+    await api.delete(`/purchases/${id}`)
+    setPurchases(prev => prev.filter(p => p.id !== id))
+    toast.success('Deleted')
+  }
+
+  const daysSince = (date) => Math.floor((Date.now() - new Date(date)) / (1000*60*60*24))
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: 13 }}>
+        <span style={{ fontWeight: 600 }}>🛒 Purchases</span>
+        <button className="btn btn-primary btn-sm" style={{ padding: '3px 10px' }}
+          onClick={() => setShowForm(!showForm)}>
+          {showForm ? 'Cancel' : '+ Add'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+          <div className="form-row">
+            <label className="label">Product *</label>
+            <select className="input" value={form.product_name} onChange={e => setForm(f => ({ ...f, product_name: e.target.value }))}>
+              <option value="">Select product...</option>
+              {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div className="form-row">
+            <label className="label">Quantity (e.g. 200ml, 1 bottle)</label>
+            <input className="input" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} placeholder="200ml" />
+          </div>
+          <div className="form-row">
+            <label className="label">Purchase Date *</label>
+            <input className="input" type="date" value={form.purchase_date} onChange={e => setForm(f => ({ ...f, purchase_date: e.target.value }))} />
+          </div>
+          <div className="form-row">
+            <label className="label">Full Course Duration (days)</label>
+            <select className="input" value={form.course_days} onChange={e => setForm(f => ({ ...f, course_days: +e.target.value }))}>
+              {[15,30,45,60,90,120].map(d => <option key={d} value={d}>{d} days</option>)}
+            </select>
+          </div>
+          <button className="btn btn-primary btn-sm" style={{ width: '100%' }} onClick={save}>
+            Save Purchase & Schedule Follow-ups
+          </button>
+        </div>
+      )}
+
+      {purchases.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--text2)' }}>No purchases recorded yet.</div>
+      ) : purchases.map(p => {
+        const days = daysSince(p.purchase_date)
+        const progress = Math.min(100, (days / p.course_days) * 100)
+        return (
+          <div key={p.id} style={{ marginBottom: 10, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontWeight: 600, fontSize: 12 }}>{p.product_name}</span>
+              <button onClick={() => del(p.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 11 }}>✕</button>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 4 }}>
+              {p.quantity && `${p.quantity} · `}Day {days} of {p.course_days}
+            </div>
+            <div style={{ background: 'var(--bg3)', borderRadius: 99, height: 4, marginBottom: 4 }}>
+              <div style={{ height: '100%', borderRadius: 99, background: progress >= 100 ? 'var(--green)' : 'var(--primary)', width: `${progress}%` }}/>
+            </div>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {p.followup_day_10_sent && <span className="badge badge-green" style={{fontSize:10}}>✓ Day 10</span>}
+              {p.followup_day_45_sent && <span className="badge badge-green" style={{fontSize:10}}>✓ Day 45</span>}
+              {p.followup_complete_sent && <span className="badge badge-green" style={{fontSize:10}}>✓ Complete</span>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Flow State Panel ─────────────────────────────────────────────────────────
+function FlowStatePanel({ phone }) {
+  const [state, setState] = useState(null)
+  const [resetting, setResetting] = useState(false)
+
+  useEffect(() => {
+    api.get(`/purchases/flow-state/${phone}`).then(r => setState(r.data)).catch(() => {})
+  }, [phone])
+
+  const resetFlow = async () => {
+    setResetting(true)
+    try {
+      await api.post(`/purchases/reset-flow/${phone}`)
+      setState(null)
+      toast.success('Flow reset! Customer will get welcome message on next message.')
+    } catch { toast.error('Failed') }
+    finally { setResetting(false) }
+  }
+
+  if (!state || !state.flow_step) return null
+
+  const stepLabels = {
+    language: 'Selecting Language', health_concern: 'Choosing Health Concern',
+    duration: 'Answering Duration', tried_medicine: 'Answering Medicine History',
+    age_group: 'Answering Age', form_preference: 'Choosing Product Form',
+    recommended: 'Product Recommended', done: 'Flow Complete',
+    call_time: 'Choosing Call Time'
+  }
+
+  return (
+    <div className="card">
+      <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>🔄 Conversation Flow</div>
+      <div style={{ fontSize: 12, marginBottom: 6 }}>
+        <span style={{ color: 'var(--text2)' }}>Step: </span>
+        <span style={{ fontWeight: 500 }}>{stepLabels[state.flow_step] || state.flow_step}</span>
+      </div>
+      {state.language && (
+        <div style={{ fontSize: 12, marginBottom: 6 }}>
+          <span style={{ color: 'var(--text2)' }}>Language: </span>
+          <span>{{ gu: '🇮🇳 Gujarati', hi: '🇮🇳 Hindi', en: '🇬🇧 English' }[state.language]}</span>
+        </div>
+      )}
+      {state.ai_mode && <span className="badge badge-purple" style={{fontSize:10, marginBottom:6, display:'block'}}>🤖 AI Mode Active</span>}
+      {state.escalated && <span className="badge badge-red" style={{fontSize:10, marginBottom:6, display:'block'}}>🚨 Escalated to Agent</span>}
+      {state.collected_data && Object.keys(state.collected_data).length > 0 && (
+        <div style={{ background: 'var(--bg3)', borderRadius: 6, padding: '6px 8px', fontSize: 11, marginBottom: 8 }}>
+          {Object.entries(state.collected_data).map(([k, v]) => (
+            <div key={k} style={{ color: 'var(--text2)' }}><strong>{k}:</strong> {String(v)}</div>
+          ))}
+        </div>
+      )}
+      <button className="btn btn-ghost btn-sm" style={{ width: '100%', fontSize: 11 }}
+        onClick={resetFlow} disabled={resetting}>
+        {resetting ? 'Resetting...' : '🔄 Restart Flow (send welcome again)'}
+      </button>
     </div>
   )
 }
