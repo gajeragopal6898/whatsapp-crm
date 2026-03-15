@@ -31,6 +31,7 @@ export default function Layout() {
   const navItems = [
     { to: '/', icon: '⬛', label: 'Dashboard', exact: true },
     { to: '/leads', icon: '👥', label: 'Leads', badge: unread > 0 ? unread : null },
+    { to: '/broadcast', icon: '📤', label: 'Broadcast' },
     { to: '/settings', icon: '⚙️', label: 'Settings' },
   ]
 
