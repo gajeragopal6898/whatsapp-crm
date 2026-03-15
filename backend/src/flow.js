@@ -10,8 +10,8 @@ const MESSAGES = {
     tried_medicine: `Have you tried any medicine before for this?\n\n1️⃣ Yes (Ayurvedic)\n2️⃣ Yes (Allopathic/English medicine)\n3️⃣ No, first time`,
     age_group: `What is your age group? (Optional - press 0 to skip)\n\n1️⃣ Below 18\n2️⃣ 18 to 35\n3️⃣ 36 to 55\n4️⃣ Above 55\n0️⃣ Skip`,
     form_preference: `Which form do you prefer?\n\n1️⃣ Syrup (easy to take, fast action)\n2️⃣ Tablet/Capsule (convenient)\n3️⃣ Powder (traditional, mix with milk/water)\n4️⃣ Oil (external use only)\n5️⃣ No preference`,
-    escalate_msg: `Thank you! 🙏 Our health expert will contact you shortly.\n\nWhat is your preferred time for a call?\n1️⃣ Morning (9am - 12pm)\n2️⃣ Afternoon (12pm - 4pm)\n3️⃣ Evening (4pm - 8pm)`,
-    agent_notified: (time) => `Thank you! ✅ Our agent will call you during *${time}*.\n\nFor urgent enquiries, WhatsApp us: *9023935773*`,
+    escalate_msg: `Thank you! 🙏 Our health expert will contact you.\n\nPlease select your preferred time for a call:\n1️⃣ Morning (10:00 AM - 12:00 PM)\n2️⃣ Afternoon (12:00 PM - 3:00 PM)\n3️⃣ Evening (3:00 PM - 6:00 PM)\n4️⃣ Night (6:00 PM - 9:00 PM)`,
+    agent_notified: (agentName, time) => `✅ Thank you!\n\n*Agent Name:* ${agentName}\n*Mobile Number:* 9023935773\n\nWill call you during *${time}*.\n\n📲 Please keep your phone on ring. We look forward to helping you! 🌿`,
   },
   hi: {
     welcome: `🌿 *Dhwakat Herbal* में आपका स्वागत है!\n\nभारत का विश्वसनीय आयुर्वेदिक ब्रांड।\n\nकृपया अपनी भाषा चुनें:\n1️⃣ English\n2️⃣ हिंदी (Hindi)\n3️⃣ ગુજરાતી (Gujarati)`,
@@ -20,8 +20,8 @@ const MESSAGES = {
     tried_medicine: `क्या आपने पहले कोई दवाई ली है?\n\n1️⃣ हाँ (आयुर्वेदिक)\n2️⃣ हाँ (अंग्रेजी दवाई)\n3️⃣ नहीं, पहली बार`,
     age_group: `आपकी उम्र क्या है? (0 दबाएं अगर नहीं बताना)\n\n1️⃣ 18 से कम\n2️⃣ 18 से 35\n3️⃣ 36 से 55\n4️⃣ 55 से ज्यादा\n0️⃣ छोड़ें`,
     form_preference: `आप कौन सा रूप पसंद करते हैं?\n\n1️⃣ सिरप (आसान, जल्दी असर)\n2️⃣ टेबलेट/कैप्सूल (सुविधाजनक)\n3️⃣ पाउडर (दूध/पानी में मिलाएं)\n4️⃣ तेल (बाहरी उपयोग)\n5️⃣ कोई प्राथमिकता नहीं`,
-    escalate_msg: `धन्यवाद! 🙏 हमारे स्वास्थ्य विशेषज्ञ जल्द आपसे संपर्क करेंगे।\n\nकॉल के लिए आपका पसंदीदा समय?\n1️⃣ सुबह (9am - 12pm)\n2️⃣ दोपहर (12pm - 4pm)\n3️⃣ शाम (4pm - 8pm)`,
-    agent_notified: (time) => `धन्यवाद! ✅ हमारा एजेंट *${time}* में कॉल करेगा।\n\nजरूरी पूछताछ के लिए: *9023935773*`,
+    escalate_msg: `धन्यवाद! 🙏 हमारे स्वास्थ्य विशेषज्ञ आपसे संपर्क करेंगे।\n\nकॉल के लिए आपका पसंदीदा समय चुनें:\n1️⃣ सुबह (10:00 AM - 12:00 PM)\n2️⃣ दोपहर (12:00 PM - 3:00 PM)\n3️⃣ शाम (3:00 PM - 6:00 PM)\n4️⃣ रात (6:00 PM - 9:00 PM)`,
+    agent_notified: (agentName, time) => `✅ धन्यवाद!\n\n*एजेंट का नाम:* ${agentName}\n*मोबाइल नंबर:* 9023935773\n\n*${time}* के दौरान कॉल करेंगे।\n\n📲 कृपया अपना फोन रिंग पर रखें। हम आपकी मदद करने के लिए तत्पर हैं! 🌿`,
   },
   gu: {
     welcome: `🌿 *Dhwakat Herbal* માં આપનું સ્વાગત છે!\n\nભારતનો વિશ્વસનીય આયુર્વેદિક બ્રાન્ડ।\n\nકૃપા કરી આપની ભાષા પસંદ કરો:\n1️⃣ English\n2️⃣ हिंदी (Hindi)\n3️⃣ ગુજરાતી (Gujarati)`,
@@ -30,15 +30,30 @@ const MESSAGES = {
     tried_medicine: `શું આપે પહેલાં કોઈ દવા લીધી છે?\n\n1️⃣ હા (આયુર્વેદિક)\n2️⃣ હા (અંગ્રેજી દવા)\n3️⃣ ના, પ્રથમ વખત`,
     age_group: `આપની ઉંમર શું છે? (0 દબાવો જો ન જણાવવું હોય)\n\n1️⃣ 18 વર્ષથી ઓછી\n2️⃣ 18 થી 35 વર્ષ\n3️⃣ 36 થી 55 વર્ષ\n4️⃣ 55 વર્ષથી વધુ\n0️⃣ છોડો`,
     form_preference: `આપ કઈ ઔષધ સ્વરૂપ પસંદ કરો છો?\n\n1️⃣ સીરપ (સરળ, ઝડપી અસર)\n2️⃣ ટેબ્લેટ/કેપ્સ્યૂલ (સગવડભર્યું)\n3️⃣ પાઉડર (દૂધ/પાણીમાં ભેળવો)\n4️⃣ તેલ (બાહ્ય ઉપયોગ)\n5️⃣ કોઈ પ્રાધાન્ય નથી`,
-    escalate_msg: `આભાર! 🙏 આપણા સ્વાસ્થ્ય નિષ્ણાત ટૂંક સમયમાં સંપર્ક કરશે.\n\nફોન કૉલ માટે આપનો પ્રિય સમય?\n1️⃣ સવારે (9am - 12pm)\n2️⃣ બપોરે (12pm - 4pm)\n3️⃣ સાંજે (4pm - 8pm)`,
-    agent_notified: (time) => `આભાર! ✅ આપણો એજન્ટ *${time}* માં કૉલ કરશે.\n\nજરૂરી પૂછપ્રછ માટે: *9023935773*`,
+    escalate_msg: `આભાર! 🙏 આપણા સ્વાસ્થ્ય નિષ્ણાત આપને સંપર્ક કરશે.\n\nફોન કૉલ માટે આપનો પ્રિય સમય પસંદ કરો:\n1️⃣ સવારે (10:00 AM - 12:00 PM)\n2️⃣ બપોરે (12:00 PM - 3:00 PM)\n3️⃣ સાંજે (3:00 PM - 6:00 PM)\n4️⃣ રાત્રે (6:00 PM - 9:00 PM)`,
+    agent_notified: (agentName, time) => `✅ આભાર!\n\n*એજન્ટ નું નામ:* ${agentName}\n*મોબાઈલ નંબર:* 9023935773\n\n*${time}* દરમિયાન કૉલ કરશે.\n\n📲 કૃપા કરી આપનો ફોન રિંગ પર રાખો. આપની સેવા કરવા અમે તૈયાર છીએ! 🌿`,
   }
 };
 
 const CALL_TIMES = {
-  en: { '1': 'Morning (9am-12pm)', '2': 'Afternoon (12pm-4pm)', '3': 'Evening (4pm-8pm)' },
-  hi: { '1': 'सुबह (9am-12pm)', '2': 'दोपहर (12pm-4pm)', '3': 'शाम (4pm-8pm)' },
-  gu: { '1': 'સવારે (9am-12pm)', '2': 'બપોરે (12pm-4pm)', '3': 'સાંજે (4pm-8pm)' }
+  en: {
+    '1': 'Morning (10:00 AM - 12:00 PM)',
+    '2': 'Afternoon (12:00 PM - 3:00 PM)',
+    '3': 'Evening (3:00 PM - 6:00 PM)',
+    '4': 'Night (6:00 PM - 9:00 PM)'
+  },
+  hi: {
+    '1': 'सुबह (10:00 AM - 12:00 PM)',
+    '2': 'दोपहर (12:00 PM - 3:00 PM)',
+    '3': 'शाम (3:00 PM - 6:00 PM)',
+    '4': 'रात (6:00 PM - 9:00 PM)'
+  },
+  gu: {
+    '1': 'સવારે (10:00 AM - 12:00 PM)',
+    '2': 'બપોરે (12:00 PM - 3:00 PM)',
+    '3': 'સાંજે (3:00 PM - 6:00 PM)',
+    '4': 'રાત્રે (6:00 PM - 9:00 PM)'
+  }
 };
 
 const HEALTH_CATEGORIES = {
@@ -96,27 +111,38 @@ async function notifyAgent(lead, collectedData, preferredTime, sendMessage, io) 
 
   // Emit to dashboard
   io.emit('lead:escalated', {
-    lead_id: lead.id,
-    phone: lead.phone,
-    name: lead.name,
-    preferred_call_time: preferredTime,
-    collected_data: collectedData,
-    message: 'Customer needs agent assistance'
+    lead_id: lead.id, phone: lead.phone, name: lead.name,
+    preferred_call_time: preferredTime, collected_data: collectedData
   });
 
-  // Send WhatsApp to admin number
-  const adminPhone = process.env.ADMIN_WHATSAPP || '9023935773';
+  // Get admin settings from DB
+  let adminNumbers = [];
+  try {
+    const { data } = await supabase.from('settings').select('value').eq('key', 'admin_numbers').single();
+    if (data?.value?.numbers) adminNumbers = data.value.numbers;
+  } catch {}
+
+  // Fallback to env
+  if (adminNumbers.length === 0) {
+    adminNumbers = [{ phone: process.env.ADMIN_WHATSAPP || '6353360578', name: 'Shreyas Ramani', notify: true }];
+  }
+
   const summary = Object.entries(collectedData)
     .filter(([k]) => k !== 'raw')
     .map(([k, v]) => `${k}: ${v}`).join('\n');
 
-  try {
-    await sendMessage(adminPhone,
-      `🚨 *AGENT REQUIRED*\n\nCustomer: ${lead.name || lead.phone}\nPhone: ${lead.phone}\nPreferred call: ${preferredTime}\n\n*Customer Info:*\n${summary}\n\nPlease call them!`
-    );
-  } catch (e) { console.log('Admin notify error:', e.message); }
+  const alertMsg = `🚨 *AGENT REQUIRED*\n\nCustomer: ${lead.name || lead.phone}\nPhone: +${lead.phone}\nPreferred call: ${preferredTime}\n\n*Customer Info:*\n${summary || 'No data collected'}\n\nPlease call them!`;
 
-  // Update lead stage to "Contacted"
+  // Only notify numbers with notify: true
+  const toNotify = adminNumbers.filter(a => a.notify !== false);
+  for (const admin of toNotify) {
+    try {
+      await sendMessage(admin.phone, alertMsg);
+      console.log(`✅ Notified ${admin.name} (${admin.phone})`);
+    } catch (e) { console.log(`Notify error for ${admin.phone}:`, e.message); }
+  }
+
+  // Update lead stage to Contacted
   const { data: stage } = await supabase.from('lead_stages').select('id').eq('name', 'Contacted').single();
   if (stage) await supabase.from('leads').update({ stage_id: stage.id }).eq('id', lead.id);
 }
@@ -207,7 +233,16 @@ async function processFlow({ phone, content, lead, io, sendMessage, saveOutgoing
       const lang = state.language || 'gu';
       const times = CALL_TIMES[lang];
       const time = times[msgNum] || times['2'];
-      const replyMsg = MESSAGES[lang].agent_notified(time);
+
+      // Get agent name from admin settings
+      let agentName = 'Dhwakat Herbal Team';
+      try {
+        const { data } = await supabase.from('settings').select('value').eq('key', 'admin_numbers').single();
+        const notifyNums = (data?.value?.numbers || []).filter(n => n.notify !== false);
+        if (notifyNums.length > 0) agentName = notifyNums[0].name;
+      } catch {}
+
+      const replyMsg = MESSAGES[lang].agent_notified(agentName, time);
       await sendMessage(phone, replyMsg);
       await saveOutgoing(lead.id, phone, replyMsg, io);
       await notifyAgent(lead, state.collected_data || {}, time, sendMessage, io);
