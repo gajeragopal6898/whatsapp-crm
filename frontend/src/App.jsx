@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Leads from './pages/Leads'
 import LeadDetail from './pages/LeadDetail'
 import Settings from './pages/Settings'
+import Broadcast from './pages/Broadcast'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -27,6 +28,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="leads" element={<Leads />} />
             <Route path="leads/:id" element={<LeadDetail />} />
+            <Route path="broadcast" element={<Broadcast />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>
