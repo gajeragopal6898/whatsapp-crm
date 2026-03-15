@@ -376,7 +376,7 @@ REPLY (ONLY in customer's language, max 3 sentences, no symbols):`;
 
   // Aggressive cleaning of garbled/special characters
   const cleanReply = reply
-    .replace(/[◆◇●○■□▲△▼▽★☆♦♠♣♥❓❔�\uFFFD]/g, '')
+    .replace(/[◆◇●○■□▲△▼▽★☆♦♠♣♥❓❔ \uFFFD]/g, '')
     .replace(/\[.*?reply\]/gi, '')
     .replace(/\(.*?translation.*?\)/gi, '')
     .replace(/\(What'?s.*?\)/gi, '')
@@ -401,4 +401,4 @@ async function summarizeConversation(messages) {
   return await callAI(prompt);
 }
 
-module.exports = { generateReply, summarizeConversation, getCustomerMemory, updateCustomerMemory, isAIPaused };
+module.exports = { generateReply, summarizeConversation, getCustomerMemory, updateCustomerMemory, isAIPaused, callAI };
