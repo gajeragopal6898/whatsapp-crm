@@ -6,7 +6,8 @@ router.get('/', auth, async (req, res) => {
   const { page = 1, limit = 20, search, stage, assigned, date_from, date_to, product } = req.query;
 
   let query = supabase.from('leads')
-    .select('*, stage:lead_stages(id,name,color), assignee:users!leads_assigned_to_fkey(id,name)', { count: 'exact' });
+    .select('*, stage:lead_stages(id,name,color), assignee:users!leads_assigned_to_fkey(id,name)', { count: 'exact' })
+    .not('phone', 'like', '%newsletter%');
 
   if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
   if (stage) query = query.eq('stage_id', stage);
@@ -68,11 +69,13 @@ router.get('/export/csv', auth, async (req, res) => {
 
   const { data } = await query;
 
-  const headers = ['Name', 'Mobile Number', 'Stage', 'First Message', 'First Contact Date', 'Last Message', 'Last Active', 'Total Messages', 'Notes'];
+  const headers = ['Name', 'Mobile Number', 'Stage', 'Pincode', 'City', 'First Message', 'First Contact Date', 'Last Message', 'Last Active', 'Total Messages', 'Notes'];
   const rows = (data || []).map(r => [
     r.name || 'Unknown',
     r.phone,
     r.stage?.name || 'New',
+    r.pincode || '',
+    r.city || '',
     r.first_message || '',
     r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '',
     r.last_message || '',
