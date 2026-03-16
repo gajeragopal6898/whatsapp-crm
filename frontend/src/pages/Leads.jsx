@@ -158,6 +158,7 @@ export default function Leads() {
                 <tr>
                   <th>Contact</th>
                   <th>Stage</th>
+                  <th>Pincode/City</th>
                   <th>First Contact</th>
                   <th>Last Message</th>
                   <th>Last Active</th>
@@ -208,6 +209,13 @@ export default function Leads() {
                       <span className={`badge ${stageColor(lead.stage?.name)}`}>
                         {lead.stage?.name || 'New'}
                       </span>
+                    </td>
+                    <td style={{ fontSize: 12 }}>
+                      {lead.pincode ? (
+                        <span className="badge badge-blue" style={{ fontSize: 10 }}>📮 {lead.pincode}</span>
+                      ) : lead.city ? (
+                        <span style={{ color: 'var(--text2)' }}>📍 {lead.city}</span>
+                      ) : <span style={{ color: 'var(--text2)' }}>—</span>}
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--text2)' }}>{formatDate(lead.created_at)}</td>
                     <td style={{ maxWidth: 180 }}>
