@@ -1079,8 +1079,82 @@ function AdminNumbersTab() {
   )
 }
 
+// ─── Flow Messages Tab ────────────────────────────────────────────────────────
+function FlowMessagesTab() {
+  const DEFAULT_MSGS = {
+    welcome_gu: `🌿 *Dhwakat Herbal* માં આપનું સ્વાગત છે!\n\nભારતનો વિશ્વસનીય આયુર્વેદિક બ્રાન્ડ।\n\nકૃપા કરી આપની ભાષા પસંદ કરો:\n1️⃣ English\n2️⃣ हिंदी (Hindi)\n3️⃣ ગુજરાતી (Gujarati)`,
+    away_message: `🙏 Thank you for contacting Dhwakat Herbal!\n\nOur team is currently unavailable. We will get back to you during working hours (10 AM - 9 PM).\n\nFor urgent orders: 9023935773`,
+    order_message: `🌿 To place an order, please WhatsApp us on:\n\n*9023935773*\n\nWe'll be happy to help you! 🙏`,
+  }
+
+  const LABELS = {
+    welcome_gu: '🙏 Welcome Message (shown to every new customer)',
+    away_message: '🌙 Away Message (outside working hours)',
+    order_message: '🛒 Order Redirect Message',
+  }
+
+  const [msgs, setMsgs] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.get('/settings').then(r => {
+      const saved = r.data.flow_messages || {}
+      setMsgs({ ...DEFAULT_MSGS, ...saved })
+    }).catch(() => setMsgs(DEFAULT_MSGS)).finally(() => setLoading(false))
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await api.patch('/settings/flow_messages', msgs)
+      toast.success('Flow messages saved!')
+    } catch { toast.error('Failed') }
+    finally { setSaving(false) }
+  }
+
+  const reset = (key) => setMsgs(m => ({ ...m, [key]: DEFAULT_MSGS[key] }))
+
+  if (loading) return <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
+
+  return (
+    <div style={{ maxWidth: 600 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>💬 Flow Messages</div>
+      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 20 }}>
+        Customize the messages sent automatically by the WhatsApp bot.
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {Object.entries(LABELS).map(([key, label]) => (
+          <div key={key} className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <label className="label" style={{ fontSize: 12, fontWeight: 600 }}>{label}</label>
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={() => reset(key)}>
+                Reset Default
+              </button>
+            </div>
+            <textarea className="input" rows={5}
+              value={msgs[key] || ''}
+              onChange={e => setMsgs(m => ({ ...m, [key]: e.target.value }))}
+              style={{ resize: 'vertical', fontSize: 12, fontFamily: 'monospace' }} />
+            <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 3 }}>
+              {(msgs[key] || '').length} characters
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }}
+        onClick={save} disabled={saving}>
+        {saving ? 'Saving...' : '💾 Save Flow Messages'}
+      </button>
+    </div>
+  )
+}
+
 const TABS = [
   { key: 'ai', label: '✨ AI Auto-Reply' },
+  { key: 'flow', label: '💬 Flow Messages' },
   { key: 'knowledge', label: '📚 Knowledge Base' },
   { key: 'memory', label: '🧠 Customer Memory' },
   { key: 'admins', label: '📱 Admin Numbers' },
@@ -1105,6 +1179,7 @@ export default function Settings() {
         ))}
       </div>
       {tab === 'ai' && <AITab />}
+      {tab === 'flow' && <FlowMessagesTab />}
       {tab === 'knowledge' && <KnowledgeTab />}
       {tab === 'memory' && <MemoryTab />}
       {tab === 'admins' && <AdminNumbersTab />}
