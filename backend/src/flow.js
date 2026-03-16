@@ -215,13 +215,28 @@ async function processFlow({ phone, content, lead, io, sendMessage, saveOutgoing
 
   let state = await getState(phone);
 
-  // ── NEW CUSTOMER or RESET ──
-  if (!state || state.flow_step === 'welcome' || state.flow_step === 'done') {
-    await resetState(phone, lead.id);
-    await sendMessage(phone, MESSAGES.gu.welcome);
-    await saveOutgoing(lead.id, phone, MESSAGES.gu.welcome, io);
-    await setState(phone, lead.id, { flow_step: 'language' });
-    return true;
+  // ── NEW CUSTOMER or RESET (max once per 24 hours) ──
+  const now = new Date();
+  const staleAfterHours = 24;
+  const isStale = state && state.updated_at && 
+    (now - new Date(state.updated_at)) > staleAfterHours * 60 * 60 * 1000;
+  
+  if (!state || state.flow_step === 'welcome' || state.flow_step === 'done' || isStale) {
+    // Only reset if truly new or stale — not if already in active flow
+    const activeSteps = ['language','health_concern','duration','tried_medicine','age_group','form_preference','call_time'];
+    if (!state || state.flow_step === 'welcome' || state.flow_step === 'done' || isStale) {
+      await resetState(phone, lead.id);
+      // Get welcome message from settings or use default
+      let welcomeMsg = MESSAGES.gu.welcome;
+      try {
+        const { data: s } = await supabase.from("settings").select("value").eq("key","flow_messages").single();
+        if (s?.value?.welcome_gu) welcomeMsg = s.value.welcome_gu;
+      } catch {}
+      await sendMessage(phone, welcomeMsg);
+      await saveOutgoing(lead.id, phone, welcomeMsg, io);
+      await setState(phone, lead.id, { flow_step: "language" });
+      return true;
+    }
   }
 
   // ── IF ESCALATED — AI or agent mode ──
