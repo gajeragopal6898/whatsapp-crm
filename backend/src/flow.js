@@ -200,14 +200,11 @@ INSTRUCTIONS:
 
 RECOMMENDATION:`;
 
-  return await generateReply({
-    customerMessage: `Recommend product based on: ${JSON.stringify(collectedData)}`,
-    businessContext,
-    conversationHistory: [],
-    customerName: lead?.name || '',
-    phone: lead?.phone || '',
-    leadId: lead?.id || ''
-  }).catch(() => null) || await require('./ai').callAI(prompt);
+  // Use callAI directly for clean output without the general AI rules interfering
+  const { callAI } = require('./ai');
+  const raw = await callAI(prompt);
+  // Clean garbled characters
+  return raw.replace(/[◆◇●○■□▲△▼▽★☆♦♠♣♥❓❔\uFFFD]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 // ─── MAIN FLOW PROCESSOR ──────────────────────────────────────────────────────
