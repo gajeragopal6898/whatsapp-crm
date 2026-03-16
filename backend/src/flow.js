@@ -1,75 +1,143 @@
 const supabase = require('./supabase');
-const { generateReply } = require('./ai');
+const { callAI } = require('./ai');
 
-// ─── FLOW MESSAGES ─────────────────────────────────────────────────────────────
-const MESSAGES = {
-  en: {
-    welcome: `🌿 Welcome to *Dhwakat Herbal*!\n\nIndia's trusted Ayurvedic brand.\n\nPlease select your language:\n1️⃣ English\n2️⃣ हिंदी (Hindi)\n3️⃣ ગુજરાતી (Gujarati)`,
-    health_concern: `What is your health concern? Please reply with a number:\n\n1️⃣ Mental Health (Stress/Anxiety/Sleep/Memory)\n2️⃣ Digestive Health (Acidity/Gas/Constipation)\n3️⃣ Women's Health (PCOS/Periods/Iron)\n4️⃣ Skin & Hair (Acne/Hair Fall/Glow)\n5️⃣ Joints & Bones (Joint Pain/Arthritis)\n6️⃣ Immunity & Respiratory (Cold/Cough/Allergy)\n7️⃣ Weight Management (Loss/Gain)\n8️⃣ Diabetes/BP/Cholesterol\n9️⃣ Men's Wellness (Energy/Vitality)\n🔟 Other (type your concern)`,
-    duration: `How long have you had this problem?\n\n1️⃣ Less than 1 week\n2️⃣ 1 week - 1 month\n3️⃣ 1 to 6 months\n4️⃣ More than 6 months`,
-    tried_medicine: `Have you tried any medicine before for this?\n\n1️⃣ Yes (Ayurvedic)\n2️⃣ Yes (Allopathic/English medicine)\n3️⃣ No, first time`,
-    age_group: `What is your age group? (Optional - press 0 to skip)\n\n1️⃣ Below 18\n2️⃣ 18 to 35\n3️⃣ 36 to 55\n4️⃣ Above 55\n0️⃣ Skip`,
-    form_preference: `Which form do you prefer?\n\n1️⃣ Syrup (easy to take, fast action)\n2️⃣ Tablet/Capsule (convenient)\n3️⃣ Powder (traditional, mix with milk/water)\n4️⃣ Oil (external use only)\n5️⃣ No preference`,
-    escalate_msg: `Thank you! 🙏 Our health expert will contact you.\n\nPlease select your preferred time for a call:\n1️⃣ Morning (10:00 AM - 12:00 PM)\n2️⃣ Afternoon (12:00 PM - 3:00 PM)\n3️⃣ Evening (3:00 PM - 6:00 PM)\n4️⃣ Night (6:00 PM - 9:00 PM)`,
-    agent_notified: (agentName, time) => `✅ Thank you!\n\n*Agent Name:* ${agentName}\n*Mobile Number:* 9023935773\n\nWill call you during *${time}*.\n\n📲 Please keep your phone on ring. We look forward to helping you! 🌿`,
-  },
-  hi: {
-    welcome: `🌿 *Dhwakat Herbal* में आपका स्वागत है!\n\nभारत का विश्वसनीय आयुर्वेदिक ब्रांड।\n\nकृपया अपनी भाषा चुनें:\n1️⃣ English\n2️⃣ हिंदी (Hindi)\n3️⃣ ગુજરાતી (Gujarati)`,
-    health_concern: `आपको कौन सी स्वास्थ्य समस्या है? नंबर से जवाब दें:\n\n1️⃣ मानसिक स्वास्थ्य (तनाव/चिंता/नींद/याददाश्त)\n2️⃣ पाचन स्वास्थ्य (एसिडिटी/गैस/कब्ज)\n3️⃣ महिला स्वास्थ्य (PCOS/पीरियड्स/आयरन)\n4️⃣ त्वचा और बाल (मुहांसे/बालों का झड़ना)\n5️⃣ जोड़ और हड्डियां (जोड़ों का दर्द)\n6️⃣ रोग प्रतिरोधक क्षमता (सर्दी/खांसी/एलर्जी)\n7️⃣ वजन प्रबंधन (घटाना/बढ़ाना)\n8️⃣ मधुमेह/बीपी/कोलेस्ट्रॉल\n9️⃣ पुरुष स्वास्थ्य (ऊर्जा/जीवन शक्ति)\n🔟 अन्य (अपनी समस्या लिखें)`,
-    duration: `यह समस्या कब से है?\n\n1️⃣ 1 हफ्ते से कम\n2️⃣ 1 हफ्ता - 1 महीना\n3️⃣ 1 से 6 महीने\n4️⃣ 6 महीने से ज्यादा`,
-    tried_medicine: `क्या आपने पहले कोई दवाई ली है?\n\n1️⃣ हाँ (आयुर्वेदिक)\n2️⃣ हाँ (अंग्रेजी दवाई)\n3️⃣ नहीं, पहली बार`,
-    age_group: `आपकी उम्र क्या है? (0 दबाएं अगर नहीं बताना)\n\n1️⃣ 18 से कम\n2️⃣ 18 से 35\n3️⃣ 36 से 55\n4️⃣ 55 से ज्यादा\n0️⃣ छोड़ें`,
-    form_preference: `आप कौन सा रूप पसंद करते हैं?\n\n1️⃣ सिरप (आसान, जल्दी असर)\n2️⃣ टेबलेट/कैप्सूल (सुविधाजनक)\n3️⃣ पाउडर (दूध/पानी में मिलाएं)\n4️⃣ तेल (बाहरी उपयोग)\n5️⃣ कोई प्राथमिकता नहीं`,
-    escalate_msg: `धन्यवाद! 🙏 हमारे स्वास्थ्य विशेषज्ञ आपसे संपर्क करेंगे।\n\nकॉल के लिए आपका पसंदीदा समय चुनें:\n1️⃣ सुबह (10:00 AM - 12:00 PM)\n2️⃣ दोपहर (12:00 PM - 3:00 PM)\n3️⃣ शाम (3:00 PM - 6:00 PM)\n4️⃣ रात (6:00 PM - 9:00 PM)`,
-    agent_notified: (agentName, time) => `✅ धन्यवाद!\n\n*एजेंट का नाम:* ${agentName}\n*मोबाइल नंबर:* 9023935773\n\n*${time}* के दौरान कॉल करेंगे।\n\n📲 कृपया अपना फोन रिंग पर रखें। हम आपकी मदद करने के लिए तत्पर हैं! 🌿`,
-  },
-  gu: {
-    welcome: `🌿 *Dhwakat Herbal* માં આપનું સ્વાગત છે!\n\nભારતનો વિશ્વસનીય આયુર્વેદિક બ્રાન્ડ।\n\nકૃપા કરી આપની ભાષા પસંદ કરો:\n1️⃣ English\n2️⃣ हिंदी (Hindi)\n3️⃣ ગુજરાતી (Gujarati)`,
-    health_concern: `આપને કઈ સ્વાસ્થ્ય સમસ્યા છે? નંબર દ્વારા જવાબ આપો:\n\n1️⃣ માનસિક સ્વાસ્થ્ય (તણાવ/ચિંતા/ઊંઘ/યાદશક્તિ)\n2️⃣ પાચન સ્વાસ્થ્ય (એસિડિટી/ગેસ/કબ્જ)\n3️⃣ સ્ત્રી સ્વાસ્થ્ય (PCOS/પીરિયડ્સ/આયર્ન)\n4️⃣ ત્વચા અને વાળ (ખીલ/વાળ ખરવા/ચળ)\n5️⃣ સાંધા અને હાડકા (સાંધાનો દુઃખાવો)\n6️⃣ રોગ પ્રતિકારક શક્તિ (શરદી/ખાંસી/એલર્જી)\n7️⃣ વજન વ્યવસ્થાપન (ઘટાડવું/વધારવું)\n8️⃣ ડાયાબિટીસ/BP/કોલેસ્ટ્રોલ\n9️⃣ પુરુષ સ્વાસ્થ્ય (ઊર્જા/શક્તિ)\n🔟 અન્ય (આપની સમસ્યા લખો)`,
-    duration: `આ સમસ્યા કેટલા સમયથી છે?\n\n1️⃣ 1 અઠવાડિયાથી ઓછી\n2️⃣ 1 અઠવાડિયો - 1 મહિનો\n3️⃣ 1 થી 6 મહિના\n4️⃣ 6 મહિનાથી વધુ`,
-    tried_medicine: `શું આપે પહેલાં કોઈ દવા લીધી છે?\n\n1️⃣ હા (આયુર્વેદિક)\n2️⃣ હા (અંગ્રેજી દવા)\n3️⃣ ના, પ્રથમ વખત`,
-    age_group: `આપની ઉંમર શું છે? (0 દબાવો જો ન જણાવવું હોય)\n\n1️⃣ 18 વર્ષથી ઓછી\n2️⃣ 18 થી 35 વર્ષ\n3️⃣ 36 થી 55 વર્ષ\n4️⃣ 55 વર્ષથી વધુ\n0️⃣ છોડો`,
-    form_preference: `આપ કઈ ઔષધ સ્વરૂપ પસંદ કરો છો?\n\n1️⃣ સીરપ (સરળ, ઝડપી અસર)\n2️⃣ ટેબ્લેટ/કેપ્સ્યૂલ (સગવડભર્યું)\n3️⃣ પાઉડર (દૂધ/પાણીમાં ભેળવો)\n4️⃣ તેલ (બાહ્ય ઉપયોગ)\n5️⃣ કોઈ પ્રાધાન્ય નથી`,
-    escalate_msg: `આભાર! 🙏 આપણા સ્વાસ્થ્ય નિષ્ણાત આપને સંપર્ક કરશે.\n\nફોન કૉલ માટે આપનો પ્રિય સમય પસંદ કરો:\n1️⃣ સવારે (10:00 AM - 12:00 PM)\n2️⃣ બપોરે (12:00 PM - 3:00 PM)\n3️⃣ સાંજે (3:00 PM - 6:00 PM)\n4️⃣ રાત્રે (6:00 PM - 9:00 PM)`,
-    agent_notified: (agentName, time) => `✅ આભાર!\n\n*એજન્ટ નું નામ:* ${agentName}\n*મોબાઈલ નંબર:* 9023935773\n\n*${time}* દરમિયાન કૉલ કરશે.\n\n📲 કૃપા કરી આપનો ફોન રિંગ પર રાખો. આપની સેવા કરવા અમે તૈયાર છીએ! 🌿`,
-  }
+// ─── TRILINGUAL FLOW MESSAGES ─────────────────────────────────────────────────
+const FLOW_MSG = {
+  welcome: `🙏 *Dhwakat Herbal* માં આપનું સ્વાગત છે! અમે તમને કુદરતી રીતે સ્વસ્થ રહેવામાં મદદ કરવા માટે ઉત્સુક છીએ.
+Dhwakat Herbal में आपका स्वागत है। हम आपको स्वस्थ रखने के लिए यहाँ हैं।
+Welcome to *Dhwakat Herbal*! We are here to help you stay healthy naturally.
+
+કૃપા કરીને ભાષા પસંદ કરો | कृपया भाषा चुनें | Please choose language:
+1️⃣ ગુજરાતી
+2️⃣ हिंदी
+3️⃣ English`,
+
+  name_capture_gu: `🙏 આપનું નામ જણાવો.\nઉદા: Rahul Patel`,
+  name_capture_hi: `🙏 कृपया अपना नाम लिखें।\nउदा: Rahul Patel`,
+  name_capture_en: `🙏 Please type your name.\nExample: Rahul Patel`,
+
+  health_concern_gu: `{name}આપને કઈ સ્વાસ્થ્ય સમસ્યા છે? નંબર દ્વારા જવાબ આપો:
+
+1️⃣ માનસિક સ્વાસ્થ્ય (Stress, Depression, ઊંઘ, Brain)
+2️⃣ પાચન અને પેટ (Acidity, Gas, Kabaj, Piles)
+3️⃣ સાંધા અને સ્નાયુ (Joint Pain, Arthritis)
+4️⃣ વજન (Weight Loss / Weight Gain)
+5️⃣ ત્વચા અને વાળ (Acne, Hair Fall, Skin Glow)
+6️⃣ પર્સનલ વેલનેસ (PCOS, Periods, Sexual Wellness)
+7️⃣ અન્ય (Immunity, Diabetes, Kidney, Detox)`,
+
+  health_concern_hi: `{name}आपको कौन सी स्वास्थ्य समस्या है? नंबर से जवाब दें:
+
+1️⃣ मानसिक स्वास्थ्य (Stress, Depression, नींद, Brain)
+2️⃣ पाचन (Acidity, Gas, कब्ज, Piles)
+3️⃣ जोड़ और मांसपेशी (Joint Pain, Arthritis)
+4️⃣ वजन (Weight Loss / Weight Gain)
+5️⃣ त्वचा और बाल (Acne, Hair Fall, Skin Glow)
+6️⃣ Personal Wellness (PCOS, Periods, Sexual Wellness)
+7️⃣ अन्य (Immunity, Diabetes, Kidney, Detox)`,
+
+  health_concern_en: `{name}What health issue are you facing? Reply with number:
+
+1️⃣ Mental Health (Stress, Depression, Sleep, Brain)
+2️⃣ Digestion (Acidity, Gas, Constipation, Piles)
+3️⃣ Joint Pain (Arthritis, Muscle Pain)
+4️⃣ Weight Management (Weight Loss / Weight Gain)
+5️⃣ Skin & Hair (Acne, Hair Fall, Skin Glow)
+6️⃣ Personal Wellness (PCOS, Periods, Sexual Wellness)
+7️⃣ Other (Immunity, Diabetes, Kidney Stone, Detox)`,
+
+  duration_gu: `આ સમસ્યા તમને કેટલા સમયથી છે?
+1️⃣ 1 મહિનાથી ઓછું
+2️⃣ 1 થી 6 મહિના
+3️⃣ 6 મહિનાથી વધુ`,
+
+  duration_hi: `यह समस्या आपको कब से है?
+1️⃣ 1 महीने से कम
+2️⃣ 1 से 6 महीने
+3️⃣ 6 महीने से ज़्यादा`,
+
+  duration_en: `How long have you had this problem?
+1️⃣ Less than 1 month
+2️⃣ 1 to 6 months
+3️⃣ More than 6 months`,
+
+  medicine_gu: `શું તમે આ સમસ્યા માટે પહેલાં કોઈ દવા લીધી છે?
+1️⃣ હા
+2️⃣ ના`,
+
+  medicine_hi: `क्या आपने इस समस्या के लिए पहले कोई दवा ली है?
+1️⃣ हाँ
+2️⃣ नहीं`,
+
+  medicine_en: `Have you taken any medicine before for this?
+1️⃣ Yes
+2️⃣ No`,
+
+  age_gu: `તમારી ઉંમર કેટલી છે?
+1️⃣ 18 વર્ષથી ઓછી
+2️⃣ 18 થી 45
+3️⃣ 45 થી વધુ`,
+
+  age_hi: `आपकी उम्र कितनी है?
+1️⃣ 18 से कम
+2️⃣ 18 से 45
+3️⃣ 45 से ज़्यादा`,
+
+  age_en: `What is your age group?
+1️⃣ Below 18
+2️⃣ 18 to 45
+3️⃣ Above 45`,
+
+  pincode_gu: `📦 આપનો Pincode અથવા શહેરનું નામ જણાવો.\nઉદા: 395001 અથવા Surat\nDelivery & courier selection માટે જરૂરી છે.`,
+  pincode_hi: `📦 कृपया अपना Pincode या शहर बताएं।\nउदा: 395001 या Surat\nडिलीवरी के लिए जरूरी है।`,
+  pincode_en: `📦 Please share your Pincode or City.\nE.g. 395001 or Surat\nRequired for delivery.`,
+
+  ai_suggestion_gu: `{name}ની માહિતી માટે આભાર! 🙏\nઆપ જણાવેલ માહિતી અનુસાર, આપણા નિષ્ણાત આપ માટે સૌથી ઉપયોગી આયુર્વેદિક ઉત્પાદન સૂચવશે.\nઓર્ડર confirm કરવા આપણી ટીમ આપને call કરશે.`,
+  ai_suggestion_hi: `{name}जानकारी के लिए धन्यवाद! 🙏\nआपके द्वारा दी गई जानकारी के आधार पर हमारी टीम सही उत्पाद सुझाएगी।\nऑर्डर कन्फर्म करने के लिए हमारी टीम आपको कॉल करेगी।`,
+  ai_suggestion_en: `Thank you {name}! 🙏\nBased on your answers, our health expert will suggest the best Ayurvedic product for you.\nOur team will call you to confirm your order.`,
+
+  callback_gu: `કૃપા કરીને call સમય પસંદ કરો:
+1️⃣ સવારે 10:00 - 12:00
+2️⃣ બપોરે 12:00 - 03:00
+3️⃣ બપોરે 03:00 - 06:00
+4️⃣ સાંજે 06:00 - 09:00`,
+
+  callback_hi: `कृपया call का समय चुनें:
+1️⃣ सुबह 10:00 - 12:00
+2️⃣ दोपहर 12:00 - 03:00
+3️⃣ शाम 03:00 - 06:00
+4️⃣ शाम 06:00 - 09:00`,
+
+  callback_en: `Please choose your preferred call time:
+1️⃣ Morning 10:00 AM - 12:00 PM
+2️⃣ Afternoon 12:00 PM - 03:00 PM
+3️⃣ Evening 03:00 PM - 06:00 PM
+4️⃣ Evening 06:00 PM - 09:00 PM`,
 };
 
-const CALL_TIMES = {
-  en: {
-    '1': 'Morning (10:00 AM - 12:00 PM)',
-    '2': 'Afternoon (12:00 PM - 3:00 PM)',
-    '3': 'Evening (3:00 PM - 6:00 PM)',
-    '4': 'Night (6:00 PM - 9:00 PM)'
-  },
-  hi: {
-    '1': 'सुबह (10:00 AM - 12:00 PM)',
-    '2': 'दोपहर (12:00 PM - 3:00 PM)',
-    '3': 'शाम (3:00 PM - 6:00 PM)',
-    '4': 'रात (6:00 PM - 9:00 PM)'
-  },
-  gu: {
-    '1': 'સવારે (10:00 AM - 12:00 PM)',
-    '2': 'બપોરે (12:00 PM - 3:00 PM)',
-    '3': 'સાંજે (3:00 PM - 6:00 PM)',
-    '4': 'રાત્રે (6:00 PM - 9:00 PM)'
-  }
+const FINAL_MSG = {
+  gu: (n, t) => `✅ આભાર! 🙏\n\n*Agent Name:* ${n}\n*Mobile:* 9023935773\n\nઆપ પસંદ કરેલ *${t}* સમય દરમ્યાન સ્વાસ્થ્ય નિષ્ણાત સંપર્ક કરશે.\n\n📲 ફોન ring પર રાખો.\n\n🌿 *Dhwakat – World of Ayurveda*`,
+  hi: (n, t) => `✅ धन्यवाद! 🙏\n\n*Agent Name:* ${n}\n*Mobile:* 9023935773\n\n*${t}* के दौरान हमारे विशेषज्ञ आपसे संपर्क करेंगे।\n\n📲 फोन ring पर रखें।\n\n🌿 *Dhwakat – World of Ayurveda*`,
+  en: (n, t) => `✅ Thank you! 🙏\n\n*Agent Name:* ${n}\n*Mobile:* 9023935773\n\nWill call you during *${t}*.\n\n📲 Please keep your phone on ring.\n\n🌿 *Dhwakat – World of Ayurveda*`,
+};
+
+const CALL_TIMES_MAP = {
+  gu: { '1':'સવારે 10:00-12:00','2':'બપોરે 12:00-03:00','3':'બપોરે 03:00-06:00','4':'સાંજે 06:00-09:00' },
+  hi: { '1':'सुबह 10:00-12:00','2':'दोपहर 12:00-03:00','3':'शाम 03:00-06:00','4':'शाम 06:00-09:00' },
+  en: { '1':'Morning 10:00-12:00','2':'Afternoon 12:00-03:00','3':'Evening 03:00-06:00','4':'Evening 06:00-09:00' },
 };
 
 const HEALTH_CATEGORIES = {
-  '1': 'Mental Health (Stress/Anxiety/Sleep/Memory)',
-  '2': 'Digestive Health (Acidity/Gas/Constipation)',
-  '3': "Women's Health (PCOS/Periods/Iron)",
-  '4': 'Skin & Hair (Acne/Hair Fall)',
-  '5': 'Joints & Bones (Joint Pain/Arthritis)',
-  '6': 'Immunity & Respiratory (Cold/Cough/Allergy)',
-  '7': 'Weight Management',
-  '8': 'Diabetes/BP/Cholesterol',
-  '9': "Men's Wellness (Energy/Vitality)",
-  '10': 'Other'
+  '1':'Mental Health (Stress/Depression/Sleep/Brain)',
+  '2':'Digestion (Acidity/Gas/Constipation/Piles)',
+  '3':'Joint & Muscle Pain',
+  '4':'Weight Management',
+  '5':'Skin & Hair',
+  '6':'Personal Wellness (PCOS/Periods/Sexual)',
+  '7':'Other (Immunity/Diabetes/Kidney/Detox)',
 };
 
-// ─── GET FLOW MESSAGES (from DB or defaults) ─────────────────────────────────
+// ─── DB MESSAGE CACHE ──────────────────────────────────────────────────────────
 let cachedFlowMsgs = null;
 let cacheExpiry = 0;
 
@@ -79,20 +147,19 @@ async function getFlowMessages() {
   try {
     const { data } = await supabase.from('settings').select('value').eq('key', 'flow_messages').single();
     cachedFlowMsgs = data?.value || {};
-    cacheExpiry = now + 60000; // Cache for 60 seconds
+    cacheExpiry = now + 60000;
     return cachedFlowMsgs;
   } catch { return {}; }
 }
 
-// Get a specific flow message, falling back to language-specific default
 async function getMsg(key, lang) {
   const dbMsgs = await getFlowMessages();
-  // DB messages are language-agnostic (Gujarati default) — for en/hi use MESSAGES
+  if (dbMsgs[`${key}_${lang}`]) return dbMsgs[`${key}_${lang}`];
   if (dbMsgs[key]) return dbMsgs[key];
-  return MESSAGES[lang]?.[key] || MESSAGES.gu[key] || '';
+  return FLOW_MSG[`${key}_${lang}`] || FLOW_MSG[key] || '';
 }
 
-// ─── GET/CREATE CONVERSATION STATE ───────────────────────────────────────────
+// ─── STATE HELPERS ─────────────────────────────────────────────────────────────
 async function getState(phone) {
   try {
     const { data } = await supabase.from('conversation_state').select('*').eq('phone', phone).single();
@@ -103,306 +170,260 @@ async function getState(phone) {
 async function setState(phone, leadId, updates) {
   const existing = await getState(phone);
   if (!existing) {
-    await supabase.from('conversation_state').insert({
-      phone, lead_id: leadId, ...updates, updated_at: new Date().toISOString()
-    });
+    await supabase.from('conversation_state').insert({ phone, lead_id: leadId, ...updates, updated_at: new Date().toISOString() });
   } else {
-    await supabase.from('conversation_state').update({
-      ...updates, updated_at: new Date().toISOString()
-    }).eq('phone', phone);
+    await supabase.from('conversation_state').update({ ...updates, updated_at: new Date().toISOString() }).eq('phone', phone);
   }
 }
 
 async function resetState(phone, leadId) {
   await supabase.from('conversation_state').upsert({
-    phone, lead_id: leadId,
-    flow_step: 'language', language: null,
-    collected_data: {}, ai_mode: false,
-    escalated: false, escalated_at: null,
-    updated_at: new Date().toISOString()
+    phone, lead_id: leadId, flow_step: 'language', language: null,
+    collected_data: {}, ai_mode: false, escalated: false,
+    escalated_at: null, updated_at: new Date().toISOString()
   }, { onConflict: 'phone' });
 }
 
 // ─── NOTIFY AGENT ─────────────────────────────────────────────────────────────
 async function notifyAgent(lead, collectedData, preferredTime, sendMessage, io) {
-  // Create CRM notification
   await supabase.from('notifications').insert({
-    title: '🚨 Agent Takeover Required',
-    message: `Customer ${lead.name || lead.phone} needs human help. Preferred call: ${preferredTime}`,
+    title: '🚨 Agent Required',
+    message: `Customer ${lead.name || lead.phone} needs help. Call: ${preferredTime}`,
     type: 'warning'
   });
 
-  // Emit to dashboard
-  io.emit('lead:escalated', {
-    lead_id: lead.id, phone: lead.phone, name: lead.name,
-    preferred_call_time: preferredTime, collected_data: collectedData
-  });
+  io.emit('lead:escalated', { lead_id: lead.id, phone: lead.phone, name: lead.name, preferred_call_time: preferredTime, collected_data: collectedData });
 
-  // Get admin settings from DB
   let adminNumbers = [];
   try {
     const { data } = await supabase.from('settings').select('value').eq('key', 'admin_numbers').single();
     if (data?.value?.numbers) adminNumbers = data.value.numbers;
   } catch {}
+  if (!adminNumbers.length) adminNumbers = [{ phone: process.env.ADMIN_WHATSAPP || '6353360578', name: 'Shreyas Ramani', notify: true }];
 
-  // Fallback to env
-  if (adminNumbers.length === 0) {
-    adminNumbers = [{ phone: process.env.ADMIN_WHATSAPP || '6353360578', name: 'Shreyas Ramani', notify: true }];
+  const summary = Object.entries(collectedData).filter(([k]) => k !== 'raw').map(([k, v]) => `${k}: ${v}`).join('\n');
+  const alertMsg = `🚨 *AGENT REQUIRED*\n\nCustomer: ${lead.name || lead.phone}\nPhone: +${lead.phone}\nCall Time: ${preferredTime}\nPincode: ${lead.pincode || 'N/A'}\n\n*Details:*\n${summary}\n\nCall on: 9023935773`;
+
+  for (const admin of adminNumbers.filter(a => a.notify !== false)) {
+    try { await sendMessage(admin.phone, alertMsg); } catch (e) { console.log(`Notify error:`, e.message); }
   }
 
-  const summary = Object.entries(collectedData)
-    .filter(([k]) => k !== 'raw')
-    .map(([k, v]) => `${k}: ${v}`).join('\n');
-
-  const alertMsg = `🚨 *AGENT REQUIRED*\n\nCustomer: ${lead.name || lead.phone}\nPhone: +${lead.phone}\nPreferred call: ${preferredTime}\n\n*Customer Info:*\n${summary || 'No data collected'}\n\nPlease call them!`;
-
-  // Only notify numbers with notify: true
-  const toNotify = adminNumbers.filter(a => a.notify !== false);
-  for (const admin of toNotify) {
-    try {
-      await sendMessage(admin.phone, alertMsg);
-      console.log(`✅ Notified ${admin.name} (${admin.phone})`);
-    } catch (e) { console.log(`Notify error for ${admin.phone}:`, e.message); }
-  }
-
-  // Update lead stage to Contacted
   const { data: stage } = await supabase.from('lead_stages').select('id').eq('name', 'Contacted').single();
   if (stage) await supabase.from('leads').update({ stage_id: stage.id }).eq('id', lead.id);
 }
 
-// ─── GENERATE PRODUCT RECOMMENDATION ─────────────────────────────────────────
-async function generateRecommendation(collectedData, lang, lead) {
-  const { data: aiSettings } = await supabase.from('settings').select('value').eq('key', 'ai_settings').single();
-  const businessContext = aiSettings?.value?.business_context || '';
+// ─── EXTRACT PINCODE ──────────────────────────────────────────────────────────
+function extractPincode(msg) {
+  const match = msg.match(/\b[1-9][0-9]{5}\b/);
+  return match ? match[0] : null;
+}
 
+// ─── AI PRODUCT RECOMMENDATION ────────────────────────────────────────────────
+async function generateRecommendation(collectedData, lang, lead) {
+  const { data: aiSettings } = await supabase.from('settings').select('value').eq('key', 'ai_settings').single().catch(() => ({ data: null }));
+  const biz = aiSettings?.value?.business_context || '';
   const langName = lang === 'gu' ? 'Gujarati' : lang === 'hi' ? 'Hindi' : 'English';
 
-  const prompt = `You are Dhwakat Herbal's WhatsApp assistant. Based on customer information, recommend the best Ayurvedic product.
+  const prompt = `You are Dhwakat Herbal's WhatsApp health advisor. Recommend the best Ayurvedic product.
 
-PRODUCTS:
-- Mental Health (Stress/Anxiety/Depression) → Manoveda (Syrup, Tablet)
-- Sleep/Insomnia → ShayanVeda (Syrup, Tablet)
-- Memory/Brain → Smritiveda (Syrup, Tablet), Brahmi Powder
-- Headache/Migraine → Shiroveda (Syrup, Tablet, Oil)
-- Acidity/Gas → Agnimukta (Syrup, Tablet, Powder)
-- Constipation → Rechaka Veda (Syrup, Tablet), Ishabgool
-- Women's Health/PCOS → Feminoveda (Syrup, Tablet)
-- Period Pain → Ritushanti (Syrup, Tablet)
-- Iron/Anemia → Lohaveda (Syrup, Tablet)
-- Skin/Acne → AcnoVeda (Syrup, Tablet)
-- Hair Fall → RomaVardhak (Syrup, Tablet, Oil)
-- Joint Pain → Sandhiveda (Syrup, Tablet, Powder, Oil)
-- Diabetes → GlucoVeda (Syrup, Tablet, Powder)
-- Blood Pressure → RaktaSneha (Syrup, Tablet)
-- Cholesterol → Hridayaveda (Syrup, Tablet)
-- Immunity/Cold/Cough → Immuno Plus, Shwasveda
-- Weight Loss → MedoharMukta (Syrup, Tablet, Powder)
-- Weight Gain → Poshakveda (Syrup, Tablet, Powder)
-- Men's Wellness/Energy → Vajraveda, Shilajit, Ashwagandha
-- Kidney Stone → GO_Lith
-- Liver Detox → Yakritshuddhi
-- De-addiction → Manomukta
-${businessContext}
+PRODUCTS BY CONDITION:
+Mental Health/Stress/Anxiety/Depression → Manoveda (Syrup, Tablet)
+Sleep/Insomnia → ShayanVeda (Syrup, Tablet)
+Memory/Brain → Smritiveda, Brahmi Powder
+Headache/Migraine → Shiroveda (Syrup, Tablet, Oil)
+Acidity/Gas/Bloating → Agnimukta (Syrup, Tablet, Powder)
+Constipation → Rechaka Veda, Ishabgool, Tripha
+Piles/Fissure → GudaShanti
+PCOS/Periods → Feminoveda | Period Pain → Ritushanti
+Iron/Anemia → Lohaveda | Skin/Acne → AcnoVeda | Hair Fall → RomaVardhak
+Joint Pain/Arthritis → Sandhiveda (Syrup, Tablet, Powder, Oil) + Moringa
+Diabetes → GlucoVeda | BP → RaktaSneha | Cholesterol → Hridayaveda
+Immunity/Cold/Cough → Immuno Plus, Shwasveda
+Weight Loss → MedoharMukta | Weight Gain → Poshakveda
+Sexual/Men's Wellness → Vajraveda, Shilajit, Ashwagandha, Musli
+Kidney Stone → GO_Lith | Liver → Yakritshuddhi | Detox → Raktaveda
+De-addiction → Manomukta | Vitality/Energy → Satvik Multivita
+${biz}
 
-CUSTOMER INFORMATION:
-- Health Concern: ${collectedData.health_concern || 'Not specified'}
-- Problem Duration: ${collectedData.duration || 'Not specified'}
-- Previous Medicine: ${collectedData.tried_medicine || 'Not specified'}
-- Age Group: ${collectedData.age_group || 'Not specified'}
-- Preferred Form: ${collectedData.form_preference || 'No preference'}
-- Customer Name: ${lead?.name || 'Customer'}
+CUSTOMER PROFILE:
+Name: ${lead?.name || 'Customer'}
+Health Concern: ${collectedData.health_concern || 'Not specified'}
+Duration: ${collectedData.duration || 'Not specified'}
+Previously tried medicine: ${collectedData.tried_medicine || 'Not specified'}
+Age: ${collectedData.age_group || 'Not specified'}
 
-INSTRUCTIONS:
-- Reply ONLY in ${langName}
-- Recommend 1-2 most suitable products with clear reasons
-- Mention which form based on their preference
-- End with: Order on WhatsApp 9023935773
-- Maximum 4 sentences
-- No price, no certification mention
-- Warm and caring tone
+WRITE IN: ${langName} ONLY
+MAX 3-4 sentences. Warm helpful tone.
+DO NOT mention price. DO NOT mention GMP/certification.
+End with: Order WhatsApp: 9023935773
 
 RECOMMENDATION:`;
 
-  // Use callAI directly for clean output without the general AI rules interfering
-  const { callAI } = require('./ai');
   const raw = await callAI(prompt);
-  // Clean garbled characters
-  return raw.replace(/[◆◇●○■□▲△▼▽★☆♦♠♣♥❓❔\uFFFD]/g, '').replace(/\s+/g, ' ').trim();
+  return raw.replace(/[◆◇●○■□▲△▼▽★☆♦♠♣♥❓❔\uFFFD]/g, '').replace(/\s{2,}/g, ' ').trim();
 }
 
-// ─── MAIN FLOW PROCESSOR ──────────────────────────────────────────────────────
+// ─── MAIN FLOW ─────────────────────────────────────────────────────────────────
 async function processFlow({ phone, content, lead, io, sendMessage, saveOutgoing }) {
   const msg = content.trim();
   const msgLower = msg.toLowerCase();
   const msgNum = msg.replace(/[^\d]/g, '');
 
   let state = await getState(phone);
-
-  // ── NEW CUSTOMER or RESET (max once per 24 hours) ──
   const now = new Date();
-  const staleAfterHours = 24;
-  const isStale = state && state.updated_at && 
-    (now - new Date(state.updated_at)) > staleAfterHours * 60 * 60 * 1000;
-  
-  if (!state || state.flow_step === 'welcome' || state.flow_step === 'done' || isStale) {
-    // Only reset if truly new or stale — not if already in active flow
-    const activeSteps = ['language','health_concern','duration','tried_medicine','age_group','form_preference','call_time'];
-    if (!state || state.flow_step === 'welcome' || state.flow_step === 'done' || isStale) {
-      await resetState(phone, lead.id);
-      // Get welcome message from settings or use default
-      let welcomeMsg = MESSAGES.gu.welcome;
-      try {
-        const { data: s } = await supabase.from("settings").select("value").eq("key","flow_messages").single();
-        if (s?.value?.welcome_gu) welcomeMsg = s.value.welcome_gu;
-      } catch {}
-      await sendMessage(phone, welcomeMsg);
-      await saveOutgoing(lead.id, phone, welcomeMsg, io);
-      await setState(phone, lead.id, { flow_step: "language" });
-      return true;
-    }
+  const isStale = state?.updated_at && (now - new Date(state.updated_at)) > 24 * 60 * 60 * 1000;
+
+  // New customer or stale
+  if (!state || state.flow_step === 'done' || isStale) {
+    await resetState(phone, lead.id);
+    let welcomeMsg = FLOW_MSG.welcome;
+    try { const db = await getFlowMessages(); if (db.welcome) welcomeMsg = db.welcome; } catch {}
+    await sendMessage(phone, welcomeMsg);
+    await saveOutgoing(lead.id, phone, welcomeMsg, io);
+    await setState(phone, lead.id, { flow_step: 'language' });
+    return true;
   }
 
-  // ── IF ESCALATED — AI or agent mode ──
-  if (state.escalated) {
-    if (state.flow_step === 'call_time') {
-      const lang = state.language || 'gu';
-      const times = CALL_TIMES[lang];
-      const time = times[msgNum] || times['2'];
+  if (state.ai_mode && !state.escalated) return false;
 
-      // Get agent name from admin settings
-      let agentName = 'Dhwakat Herbal Team';
-      try {
-        const { data } = await supabase.from('settings').select('value').eq('key', 'admin_numbers').single();
-        const notifyNums = (data?.value?.numbers || []).filter(n => n.notify !== false);
-        if (notifyNums.length > 0) agentName = notifyNums[0].name;
-      } catch {}
+  // Escalated — waiting for call time choice
+  if (state.escalated && state.flow_step === 'call_time') {
+    const lang = state.language || 'gu';
+    const time = CALL_TIMES_MAP[lang]?.[msgNum] || CALL_TIMES_MAP[lang]?.['2'];
+    let agentName = 'Dhwakat Herbal Team';
+    try {
+      const { data } = await supabase.from('settings').select('value').eq('key', 'admin_numbers').single();
+      const notifyNums = (data?.value?.numbers || []).filter(n => n.notify !== false);
+      if (notifyNums.length > 0) agentName = notifyNums[0].name;
+    } catch {}
 
-      const replyMsg = MESSAGES[lang].agent_notified(agentName, time);
-      await sendMessage(phone, replyMsg);
-      await saveOutgoing(lead.id, phone, replyMsg, io);
-      await notifyAgent(lead, state.collected_data || {}, time, sendMessage, io);
-      await setState(phone, lead.id, { flow_step: 'done', preferred_call_time: time });
-      return true;
-    }
-    // AI handles freely after escalation
-    return false;
+    const replyMsg = FINAL_MSG[lang](agentName, time);
+    await sendMessage(phone, replyMsg);
+    await saveOutgoing(lead.id, phone, replyMsg, io);
+    await notifyAgent(lead, state.collected_data || {}, time, sendMessage, io);
+    await setState(phone, lead.id, { flow_step: 'done', preferred_call_time: time });
+    return true;
   }
 
-  // ── AI MODE — customer broke chain ──
-  if (state.ai_mode) return false;
+  if (state.escalated) return false;
 
   const lang = state.language || 'gu';
-  const M = MESSAGES[lang];
 
-  // ── LANGUAGE SELECTION ──
+  // LANGUAGE
   if (state.flow_step === 'language') {
     let selectedLang = null;
-    if (msgNum === '1' || msgLower.includes('english')) selectedLang = 'en';
-    else if (msgNum === '2' || msgLower.includes('hindi') || msgLower.includes('हिंदी')) selectedLang = 'hi';
-    else if (msgNum === '3' || msgLower.includes('gujarati') || msgLower.includes('ગુજ')) selectedLang = 'gu';
-    else {
-      // Not a valid menu option — switch to AI mode
-      await setState(phone, lead.id, { ai_mode: true });
-      return false;
-    }
-    await setState(phone, lead.id, { language: selectedLang, flow_step: 'health_concern' });
-    const reply = await getMsg('health_concern', selectedLang);
+    if (msgNum === '1' || msgLower.includes('gujarati') || msgLower.includes('gu')) selectedLang = 'gu';
+    else if (msgNum === '2' || msgLower.includes('hindi') || msgLower.includes('हिंदी') || msgLower.includes('hindi')) selectedLang = 'hi';
+    else if (msgNum === '3' || msgLower.includes('english') || msgLower.includes('en')) selectedLang = 'en';
+    else { await setState(phone, lead.id, { ai_mode: true }); return false; }
+
+    await setState(phone, lead.id, { language: selectedLang, flow_step: 'name' });
+    const reply = await getMsg('name_capture', selectedLang);
     await sendMessage(phone, reply);
     await saveOutgoing(lead.id, phone, reply, io);
     return true;
   }
 
-  // ── HEALTH CONCERN ──
+  // NAME
+  if (state.flow_step === 'name') {
+    const name = msg.length >= 2 && msg.length <= 60 && !msg.match(/^\d+$/) ? msg : null;
+    if (name) await supabase.from('leads').update({ name }).eq('id', lead.id);
+    const data = { ...(state.collected_data || {}), customer_name: name || '' };
+    await setState(phone, lead.id, { flow_step: 'health_concern', collected_data: data });
+    const template = await getMsg('health_concern', lang);
+    const reply = template.replace('{name}', name ? `${name}, ` : '');
+    await sendMessage(phone, reply);
+    await saveOutgoing(lead.id, phone, reply, io);
+    return true;
+  }
+
+  // HEALTH CONCERN
   if (state.flow_step === 'health_concern') {
-    let concern = null;
-    if (msgNum && HEALTH_CATEGORIES[msgNum]) {
-      concern = HEALTH_CATEGORIES[msgNum];
-    } else if (msg.length > 3) {
-      // Free text — let AI handle
-      concern = msg;
-    } else {
-      await setState(phone, lead.id, { ai_mode: true });
-      return false;
-    }
+    const concern = HEALTH_CATEGORIES[msgNum] || (msg.length > 3 ? msg : null);
+    if (!concern) { await setState(phone, lead.id, { ai_mode: true }); return false; }
     const data = { ...(state.collected_data || {}), health_concern: concern };
     await setState(phone, lead.id, { flow_step: 'duration', collected_data: data });
-    const reply = await getMsg('duration', lang);
-    await sendMessage(phone, reply);
-    await saveOutgoing(lead.id, phone, reply, io);
+    await sendMessage(phone, await getMsg('duration', lang));
+    await saveOutgoing(lead.id, phone, await getMsg('duration', lang), io);
     return true;
   }
 
-  // ── DURATION ──
+  // DURATION
   if (state.flow_step === 'duration') {
-    const durations = { '1': 'Less than 1 week', '2': '1 week - 1 month', '3': '1-6 months', '4': '6+ months' };
-    const duration = durations[msgNum] || msg;
+    const dur = { gu:{'1':'<1 મહિ','2':'1-6 મહિ','3':'6+ મહિ'}, hi:{'1':'<1 माह','2':'1-6 माह','3':'6+ माह'}, en:{'1':'<1 mo','2':'1-6 mo','3':'6+ mo'} };
+    const duration = dur[lang]?.[msgNum] || msg;
     const data = { ...(state.collected_data || {}), duration };
-    await setState(phone, lead.id, { flow_step: 'tried_medicine', collected_data: data });
-    const reply = await getMsg('tried_medicine', lang);
-    await sendMessage(phone, reply);
-    await saveOutgoing(lead.id, phone, reply, io);
+    await setState(phone, lead.id, { flow_step: 'medicine', collected_data: data });
+    await sendMessage(phone, await getMsg('medicine', lang));
+    await saveOutgoing(lead.id, phone, await getMsg('medicine', lang), io);
     return true;
   }
 
-  // ── TRIED MEDICINE ──
-  if (state.flow_step === 'tried_medicine') {
-    const options = { '1': 'Yes (Ayurvedic)', '2': 'Yes (Allopathic)', '3': 'No, first time' };
-    const tried = options[msgNum] || msg;
+  // MEDICINE
+  if (state.flow_step === 'medicine') {
+    const tried = { gu:{'1':'હા','2':'ના'}, hi:{'1':'हाँ','2':'नहीं'}, en:{'1':'Yes','2':'No'} }[lang]?.[msgNum] || msg;
     const data = { ...(state.collected_data || {}), tried_medicine: tried };
-    await setState(phone, lead.id, { flow_step: 'age_group', collected_data: data });
-    const reply = await getMsg('age_group', lang);
-    await sendMessage(phone, reply);
-    await saveOutgoing(lead.id, phone, reply, io);
+    await setState(phone, lead.id, { flow_step: 'age', collected_data: data });
+    await sendMessage(phone, await getMsg('age', lang));
+    await saveOutgoing(lead.id, phone, await getMsg('age', lang), io);
     return true;
   }
 
-  // ── AGE GROUP ──
-  if (state.flow_step === 'age_group') {
-    const ages = { '0': 'Not specified', '1': 'Below 18', '2': '18-35', '3': '36-55', '4': 'Above 55' };
-    const age = ages[msgNum] || 'Not specified';
+  // AGE
+  if (state.flow_step === 'age') {
+    const age = { gu:{'1':'<18','2':'18-45','3':'45+'}, hi:{'1':'<18','2':'18-45','3':'45+'}, en:{'1':'<18','2':'18-45','3':'45+'} }[lang]?.[msgNum] || msg;
     const data = { ...(state.collected_data || {}), age_group: age };
-    await setState(phone, lead.id, { flow_step: 'form_preference', collected_data: data });
-    const reply = await getMsg('form_preference', lang);
-    await sendMessage(phone, reply);
-    await saveOutgoing(lead.id, phone, reply, io);
+    await setState(phone, lead.id, { flow_step: 'pincode', collected_data: data });
+    await sendMessage(phone, await getMsg('pincode', lang));
+    await saveOutgoing(lead.id, phone, await getMsg('pincode', lang), io);
     return true;
   }
 
-  // ── FORM PREFERENCE → RECOMMEND ──
-  if (state.flow_step === 'form_preference') {
-    const forms = { '1': 'Syrup', '2': 'Tablet/Capsule', '3': 'Powder', '4': 'Oil', '5': 'No preference' };
-    const form = forms[msgNum] || 'No preference';
-    const data = { ...(state.collected_data || {}), form_preference: form };
-    await setState(phone, lead.id, {
-      flow_step: 'recommended', collected_data: data, ai_mode: true
-    });
+  // PINCODE
+  if (state.flow_step === 'pincode') {
+    const pincode = extractPincode(msg);
+    const city = !pincode && msg.length > 1 ? msg.trim().slice(0, 30) : null;
+    if (pincode) await supabase.from('leads').update({ pincode }).eq('id', lead.id);
+    if (city) await supabase.from('leads').update({ city }).eq('id', lead.id);
 
-    // Generate AI recommendation
-    const recommendation = await generateRecommendation(data, lang, lead);
-    await sendMessage(phone, recommendation);
-    await saveOutgoing(lead.id, phone, recommendation, io);
+    const data = { ...(state.collected_data || {}), pincode: pincode || city || msg };
+    await setState(phone, lead.id, { flow_step: 'call_time', collected_data: data, escalated: true, ai_mode: false });
 
-    // Update lead stage to Qualified
+    // AI recommendation
+    const rec = await generateRecommendation(data, lang, lead);
+    await sendMessage(phone, rec);
+    await saveOutgoing(lead.id, phone, rec, io);
+
+    // AI summary + callback
+    await new Promise(r => setTimeout(r, 1500));
+    const aiMsg = (await getMsg('ai_suggestion', lang)).replace('{name}', data.customer_name ? data.customer_name + ' ' : '');
+    await sendMessage(phone, aiMsg);
+    await saveOutgoing(lead.id, phone, aiMsg, io);
+
+    await new Promise(r => setTimeout(r, 1000));
+    const cbMsg = await getMsg('callback', lang);
+    await sendMessage(phone, cbMsg);
+    await saveOutgoing(lead.id, phone, cbMsg, io);
+
+    // Update stage
     const { data: stage } = await supabase.from('lead_stages').select('id').eq('name', 'Qualified').single();
     if (stage) await supabase.from('leads').update({ stage_id: stage.id }).eq('id', lead.id);
 
     return true;
   }
 
-  // ── FALLBACK — switch to AI ──
   await setState(phone, lead.id, { ai_mode: true });
   return false;
 }
 
-// ─── CHECK IF SHOULD USE FLOW ─────────────────────────────────────────────────
 async function shouldUseFlow(phone) {
   const state = await getState(phone);
-  // Use flow if: no state, welcome step, or active flow step (not ai_mode, not done)
   if (!state) return true;
+  if (state.escalated && state.flow_step === 'call_time') return true;
   if (state.ai_mode) return false;
-  if (state.escalated && state.flow_step !== 'call_time') return false;
   if (state.flow_step === 'done') return false;
+  if (state.escalated) return false;
   return true;
 }
 
-module.exports = { processFlow, shouldUseFlow, getState, setState, notifyAgent, MESSAGES };
+module.exports = { processFlow, shouldUseFlow, getState, setState, notifyAgent, FLOW_MSG };
