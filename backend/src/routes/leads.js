@@ -87,3 +87,36 @@ router.get('/export/csv', auth, async (req, res) => {
 });
 
 module.exports = router;
+
+// Delete lead with password verification
+router.delete('/:id', auth, async (req, res) => {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'Password required' });
+  
+  try {
+    // Verify password against the requesting user
+    const bcrypt = require('bcryptjs');
+    const { data: user } = await supabase.from('users').select('password_hash').eq('id', req.user.id).single();
+    const valid = user?.password_hash && await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Incorrect password' });
+    
+    // Delete messages first, then lead
+    await supabase.from('messages').delete().eq('lead_id', req.params.id);
+    await supabase.from('conversation_state').delete().eq('lead_id', req.params.id);
+    await supabase.from('purchases').delete().eq('lead_id', req.params.id);
+    await supabase.from('leads').delete().eq('id', req.params.id);
+    
+    req.app.get('io').emit('lead:deleted', { id: req.params.id });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Transfer lead to another user
+router.patch('/:id/transfer', auth, async (req, res) => {
+  const { assigned_to } = req.body;
+  if (!assigned_to) return res.status(400).json({ error: 'assigned_to required' });
+  const { data, error } = await supabase.from('leads').update({ assigned_to }).eq('id', req.params.id).select('*, assignee:users!leads_assigned_to_fkey(id,name,email)').single();
+  if (error) return res.status(500).json({ error: error.message });
+  req.app.get('io').emit('lead:updated', data);
+  res.json(data);
+});
