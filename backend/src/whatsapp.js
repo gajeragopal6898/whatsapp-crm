@@ -7,6 +7,21 @@ const supabase = require('./supabase');
 const { generateReply } = require('./ai');
 const { processFlow, shouldUseFlow } = require('./flow');
 
+// Dedup cache — prevent processing same message twice
+const recentMessages = new Map();
+function isDuplicate(phone, content) {
+  const key = `${phone}:${content.slice(0, 50)}`;
+  const now = Date.now();
+  if (recentMessages.has(key) && now - recentMessages.get(key) < 5000) return true;
+  recentMessages.set(key, now);
+  // Cleanup old entries
+  if (recentMessages.size > 200) {
+    const cutoff = now - 10000;
+    for (const [k, t] of recentMessages) if (t < cutoff) recentMessages.delete(k);
+  }
+  return false;
+}
+
 let sock = null;
 let currentQR = null;
 let isConnected = false;
@@ -196,6 +211,11 @@ async function initWhatsApp(io) {
 
 async function handleIncomingMessage({ phone, content, pushName, io }) {
   try {
+    // Skip duplicate messages (Baileys sometimes fires twice)
+    if (isDuplicate(phone, content)) {
+      console.log(`⚠️ Duplicate message skipped: ${phone}`);
+      return;
+    }
     let { data: lead } = await supabase.from('leads').select('*').eq('phone', phone).single();
     const isNewLead = !lead;
 
