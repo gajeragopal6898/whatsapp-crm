@@ -1081,73 +1081,290 @@ function AdminNumbersTab() {
 
 // ─── Flow Messages Tab ────────────────────────────────────────────────────────
 function FlowMessagesTab() {
-  const DEFAULT_MSGS = {
-    welcome_gu: `🌿 *Dhwakat Herbal* માં આપનું સ્વાગત છે!\n\nભારતનો વિશ્વસનીય આયુર્વેદિક બ્રાન્ડ।\n\nકૃપા કરી આપની ભાષા પસંદ કરો:\n1️⃣ English\n2️⃣ हिंदी (Hindi)\n3️⃣ ગુજરાતી (Gujarati)`,
-    away_message: `🙏 Thank you for contacting Dhwakat Herbal!\n\nOur team is currently unavailable. We will get back to you during working hours (10 AM - 9 PM).\n\nFor urgent orders: 9023935773`,
-    order_message: `🌿 To place an order, please WhatsApp us on:\n\n*9023935773*\n\nWe'll be happy to help you! 🙏`,
-  }
-
-  const LABELS = {
-    welcome_gu: '🙏 Welcome Message (shown to every new customer)',
-    away_message: '🌙 Away Message (outside working hours)',
-    order_message: '🛒 Order Redirect Message',
-  }
-
+  const [activeStep, setActiveStep] = useState(null)
   const [msgs, setMsgs] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  const DEFAULTS = {
+    welcome: `🌿 *Dhwakat Herbal* માં આપનું સ્વાગત છે!\n\nભારતનો વિશ્વસનીય આયુર્વેદિક બ્રાન્ડ।\n\nકૃપા કરી આપની ભાષા પસંદ કરો:\n1️⃣ English\n2️⃣ हिंदी (Hindi)\n3️⃣ ગુજરાતી (Gujarati)`,
+    health_concern: `આપને કઈ સ્વાસ્થ્ય સમસ્યા છે? નંબર દ્વારા જવાબ આપો:\n\n1️⃣ માનસિક સ્વાસ્થ્ય (તણાવ/ચિંતા/ઊંઘ)\n2️⃣ પાચન સ્વાસ્થ્ય (એસિડિટી/ગેસ/કબ્જ)\n3️⃣ સ્ત્રી સ્વાસ્થ્ય (PCOS/પીરિયડ્સ)\n4️⃣ ત્વચા અને વાળ\n5️⃣ સાંધા અને હાડકા\n6️⃣ રોગ પ્રતિકારક શક્તિ\n7️⃣ વજન વ્યવસ્થાપન\n8️⃣ ડાયાબિટીસ/BP/કોલેસ્ટ્રોલ\n9️⃣ પુરુષ સ્વાસ્થ્ય\n🔟 અન્ય (આપની સમસ્યા લખો)`,
+    duration: `આ સમસ્યા કેટલા સમયથી છે?\n\n1️⃣ 1 અઠવાડિયાથી ઓછી\n2️⃣ 1 અઠવાડિયો - 1 મહિનો\n3️⃣ 1 થી 6 મહિના\n4️⃣ 6 મહિનાથી વધુ`,
+    tried_medicine: `શું આપે પહેલાં કોઈ દવા લીધી છે?\n\n1️⃣ હા (આયુર્વેદિક)\n2️⃣ હા (અંગ્રેજી દવા)\n3️⃣ ના, પ્રથમ વખત`,
+    age_group: `આપની ઉંમર શું છે?\n\n1️⃣ 18 વર્ષથી ઓછી\n2️⃣ 18 થી 35 વર્ષ\n3️⃣ 36 થી 55 વર્ષ\n4️⃣ 55 વર્ષથી વધુ\n0️⃣ છોડો`,
+    form_preference: `આપ કઈ ઔષધ સ્વરૂપ પસંદ કરો છો?\n\n1️⃣ સીરપ (સરળ, ઝડપી અસર)\n2️⃣ ટેબ્લેટ/કેપ્સ્યૂલ (સગવડભર્યું)\n3️⃣ પાઉડર (દૂધ/પાણીમાં ભેળવો)\n4️⃣ તેલ (બાહ્ય ઉપયોગ)\n5️⃣ કોઈ પ્રાધાન્ય નથી`,
+    escalate: `આભાર! 🙏 આપણા સ્વાસ્થ્ય નિષ્ણાત આપને સંપર્ક કરશે.\n\nફોન કૉલ માટે આપનો પ્રિય સમય:\n1️⃣ સવારે (10:00 AM - 12:00 PM)\n2️⃣ બપોરે (12:00 PM - 3:00 PM)\n3️⃣ સાંજે (3:00 PM - 6:00 PM)\n4️⃣ રાત્રે (6:00 PM - 9:00 PM)`,
+    agent_confirmed: `✅ આભાર!\n\n*એજન્ટ નું નામ:* {agent_name}\n*મોબાઈલ નંબર:* 9023935773\n\n*{call_time}* દરમિયાન કૉલ કરશે.\n\n📲 કૃપા કરી આપનો ફોન રિંગ પર રાખો! 🌿`,
+    away_message: `🙏 Dhwakat Herbal માં આપનો સ્વાગત!\n\nઅમારી ટીમ હાલ ઉપલબ્ધ નથી.\nકામના સમય: સવારે 10:00 AM - રાત 9:00 PM\n\nJruri order: 9023935773`,
+  }
+
+  // Full flow steps definition
+  const FLOW_STEPS = [
+    {
+      id: 'welcome', icon: '👋', label: 'Welcome Message', color: '#3b82f6',
+      desc: 'First message every new customer receives. Shown once per 24 hours.',
+      variables: [], next: 'Language Selection'
+    },
+    {
+      id: 'health_concern', icon: '🏥', label: 'Health Concern Menu', color: '#8b5cf6',
+      desc: 'Ask customer what health problem they have. Shows 10 categories.',
+      variables: [], next: 'Duration'
+    },
+    {
+      id: 'duration', icon: '⏱️', label: 'Problem Duration', color: '#f59e0b',
+      desc: 'Ask how long the customer has had this health problem.',
+      variables: [], next: 'Previous Medicine'
+    },
+    {
+      id: 'tried_medicine', icon: '💊', label: 'Previous Medicine', color: '#10b981',
+      desc: 'Ask if customer has tried any medicine before.',
+      variables: [], next: 'Age Group'
+    },
+    {
+      id: 'age_group', icon: '👤', label: 'Age Group', color: '#06b6d4',
+      desc: 'Ask customer\'s age group (optional, can skip with 0).',
+      variables: [], next: 'Form Preference'
+    },
+    {
+      id: 'form_preference', icon: '🌿', label: 'Product Form Preference', color: '#84cc16',
+      desc: 'Ask preferred medicine form: Syrup, Tablet, Powder or Oil.',
+      variables: [], next: '🤖 AI Product Recommendation'
+    },
+    {
+      id: 'escalate', icon: '📞', label: 'Agent Escalation', color: '#f97316',
+      desc: 'When AI cannot handle — ask customer for preferred callback time.',
+      variables: [], next: 'Agent Confirmed'
+    },
+    {
+      id: 'agent_confirmed', icon: '✅', label: 'Agent Confirmation', color: '#10b981',
+      desc: 'Message sent to customer confirming agent will call at chosen time.',
+      variables: ['{agent_name}', '{call_time}'],
+      next: 'END (Agent calls customer)'
+    },
+    {
+      id: 'away_message', icon: '🌙', label: 'Away / Off Hours Message', color: '#6b7280',
+      desc: 'Sent when customer messages outside working hours.',
+      variables: [], next: null
+    },
+  ]
+
   useEffect(() => {
     api.get('/settings').then(r => {
       const saved = r.data.flow_messages || {}
-      setMsgs({ ...DEFAULT_MSGS, ...saved })
-    }).catch(() => setMsgs(DEFAULT_MSGS)).finally(() => setLoading(false))
+      const merged = {}
+      FLOW_STEPS.forEach(s => { merged[s.id] = saved[s.id] || DEFAULTS[s.id] || '' })
+      setMsgs(merged)
+    }).catch(() => {
+      const d = {}
+      FLOW_STEPS.forEach(s => { d[s.id] = DEFAULTS[s.id] || '' })
+      setMsgs(d)
+    }).finally(() => setLoading(false))
   }, [])
 
   const save = async () => {
     setSaving(true)
     try {
       await api.patch('/settings/flow_messages', msgs)
-      toast.success('Flow messages saved!')
-    } catch { toast.error('Failed') }
+      toast.success('✅ Flow messages saved!')
+      setActiveStep(null)
+    } catch { toast.error('Failed to save') }
     finally { setSaving(false) }
   }
 
-  const reset = (key) => setMsgs(m => ({ ...m, [key]: DEFAULT_MSGS[key] }))
-
   if (loading) return <div style={{ padding: 30, textAlign: 'center' }}><div className="spinner"/></div>
 
+  const selectedStep = FLOW_STEPS.find(s => s.id === activeStep)
+
   return (
-    <div style={{ maxWidth: 600 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>💬 Flow Messages</div>
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>💬 WhatsApp Conversation Flow</div>
+        <span style={{ fontSize: 11, color: 'var(--text2)', background: 'var(--bg3)', padding: '2px 8px', borderRadius: 99, marginLeft: 4 }}>
+          Click any step to edit its message
+        </span>
+      </div>
       <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 20 }}>
-        Customize the messages sent automatically by the WhatsApp bot.
+        This is the complete conversation flow from first message to product recommendation. Edit each step's message below.
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {Object.entries(LABELS).map(([key, label]) => (
-          <div key={key} className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <label className="label" style={{ fontSize: 12, fontWeight: 600 }}>{label}</label>
-              <button className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={() => reset(key)}>
-                Reset Default
-              </button>
-            </div>
-            <textarea className="input" rows={5}
-              value={msgs[key] || ''}
-              onChange={e => setMsgs(m => ({ ...m, [key]: e.target.value }))}
-              style={{ resize: 'vertical', fontSize: 12, fontFamily: 'monospace' }} />
-            <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 3 }}>
-              {(msgs[key] || '').length} characters
+      <div style={{ display: 'grid', gridTemplateColumns: activeStep ? '1fr 420px' : '1fr', gap: 20 }}>
+
+        {/* Flow Map */}
+        <div>
+          {/* Flow chain */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {FLOW_STEPS.map((step, i) => (
+              <div key={step.id}>
+                {/* Step card */}
+                <div
+                  onClick={() => setActiveStep(activeStep === step.id ? null : step.id)}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px',
+                    borderRadius: 10, cursor: 'pointer', transition: 'all .15s',
+                    background: activeStep === step.id ? step.color + '22' : 'var(--bg2)',
+                    border: `2px solid ${activeStep === step.id ? step.color : 'var(--border)'}`,
+                    marginBottom: 0,
+                  }}>
+                  {/* Step number + icon */}
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: step.color + '22',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0, fontSize: 18
+                  }}>{step.icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{step.label}</span>
+                      {step.id === 'away_message' && (
+                        <span className="badge badge-gray" style={{ fontSize: 10 }}>Side Branch</span>
+                      )}
+                      {step.variables?.length > 0 && (
+                        <span className="badge badge-blue" style={{ fontSize: 10 }}>Has variables</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 4 }}>{step.desc}</div>
+                    {/* Message preview */}
+                    <div style={{
+                      fontSize: 11, color: 'var(--text)', background: 'var(--bg3)',
+                      padding: '4px 8px', borderRadius: 6, fontFamily: 'monospace',
+                      maxHeight: 40, overflow: 'hidden', textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap', opacity: 0.8
+                    }}>
+                      {(msgs[step.id] || '').split('\n')[0] || '(empty)'}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: activeStep === step.id ? step.color : 'var(--text2)', flexShrink: 0, fontWeight: 600 }}>
+                    {activeStep === step.id ? 'Editing ✏️' : '✏️ Edit'}
+                  </div>
+                </div>
+
+                {/* Connector arrow (not for last item or away message) */}
+                {step.next && step.id !== 'away_message' && i < FLOW_STEPS.length - 2 && (
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '2px 0 2px 19px', gap: 8 }}>
+                    <div style={{ width: 2, height: 16, background: 'var(--border)', marginLeft: 19 }}/>
+                    <span style={{ fontSize: 10, color: 'var(--text2)' }}>→ {step.next}</span>
+                  </div>
+                )}
+
+                {/* Special: after form_preference, AI takes over */}
+                {step.id === 'form_preference' && (
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0', gap: 8 }}>
+                    <div style={{ width: 2, height: 20, background: 'var(--border)', marginLeft: 19 }}/>
+                    <div style={{ background: '#162a1e', border: '1px solid var(--green)', borderRadius: 8, padding: '6px 12px', fontSize: 11, color: 'var(--green)', display: 'flex', gap: 6, alignItems: 'center' }}>
+                      🤖 <strong>AI generates personalized product recommendation</strong> (based on all collected data)
+                    </div>
+                  </div>
+                )}
+
+                {/* Special: escalation branch */}
+                {step.id === 'escalate' && (
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '2px 0', gap: 8 }}>
+                    <div style={{ width: 2, height: 16, background: 'var(--border)', marginLeft: 19 }}/>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Legend */}
+          <div className="card" style={{ marginTop: 16, padding: '12px 14px' }}>
+            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8 }}>📖 Flow Logic</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11, color: 'var(--text2)' }}>
+              <div>🟢 <strong>Normal flow:</strong> Customer picks number → next step automatically</div>
+              <div>🤖 <strong>AI takeover:</strong> Customer types free text → AI replies intelligently</div>
+              <div>📞 <strong>Escalation:</strong> AI can't help → asks call time → notifies agent on WhatsApp</div>
+              <div>🌙 <strong>Away message:</strong> Sent outside 10am–9pm if customer messages</div>
+              <div>🔄 <strong>Reset:</strong> Flow restarts every 24 hours for each customer</div>
             </div>
           </div>
-        ))}
+        </div>
+
+        {/* Edit Panel */}
+        {activeStep && selectedStep && (
+          <div>
+            <div className="card" style={{ position: 'sticky', top: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: selectedStep.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                  {selectedStep.icon}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{selectedStep.label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text2)' }}>{selectedStep.desc}</div>
+                </div>
+                <button onClick={() => setActiveStep(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text2)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+              </div>
+
+              {/* Variables hint */}
+              {selectedStep.variables?.length > 0 && (
+                <div style={{ background: '#162038', border: '1px solid #1e3a5f', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 11 }}>
+                  <div style={{ fontWeight: 600, color: '#60a5fa', marginBottom: 4 }}>📌 Available Variables:</div>
+                  {selectedStep.variables.map(v => (
+                    <div key={v} style={{ color: 'var(--text2)', fontFamily: 'monospace' }}>
+                      <strong style={{ color: '#60a5fa' }}>{v}</strong> — {
+                        v === '{agent_name}' ? 'Agent\'s name from Admin Numbers settings' :
+                        v === '{call_time}' ? 'Customer\'s chosen call time slot' : ''
+                      }
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="form-row">
+                <label className="label" style={{ fontSize: 12 }}>Message Content</label>
+                <textarea
+                  className="input"
+                  rows={10}
+                  value={msgs[activeStep] || ''}
+                  onChange={e => setMsgs(m => ({ ...m, [activeStep]: e.target.value }))}
+                  style={{ resize: 'vertical', fontSize: 12, fontFamily: 'monospace', lineHeight: 1.6 }}
+                  placeholder="Enter message text..."
+                />
+                <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 3, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{(msgs[activeStep] || '').length} characters</span>
+                  <span>{(msgs[activeStep] || '').split('\n').length} lines</span>
+                </div>
+              </div>
+
+              {/* WhatsApp preview */}
+              <div style={{ marginTop: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6 }}>📱 WhatsApp Preview:</div>
+                <div style={{
+                  background: '#0d1117', borderRadius: 12, padding: '10px 14px',
+                  border: '1px solid #1e2a3a', fontSize: 12, lineHeight: 1.7,
+                  whiteSpace: 'pre-wrap', color: '#e6edf3', maxHeight: 200, overflowY: 'auto'
+                }}>
+                  {(msgs[activeStep] || '(empty)')
+                    .replace(/\*(.+?)\*/g, '$1')
+                    .replace(/1️⃣/g, '1.')
+                    .replace(/2️⃣/g, '2.')
+                    .replace(/3️⃣/g, '3.')
+                    .replace(/4️⃣/g, '4.')
+                    .replace(/5️⃣/g, '5.')
+                    .replace(/🔟/g, '10.')}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-ghost btn-sm" style={{ flex: 1 }}
+                  onClick={() => setMsgs(m => ({ ...m, [activeStep]: DEFAULTS[activeStep] || '' }))}>
+                  Reset to Default
+                </button>
+                <button className="btn btn-primary" style={{ flex: 2 }}
+                  onClick={save} disabled={saving}>
+                  {saving ? 'Saving...' : '💾 Save All Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }}
-        onClick={save} disabled={saving}>
-        {saving ? 'Saving...' : '💾 Save Flow Messages'}
-      </button>
+      {/* Save all button when no step selected */}
+      {!activeStep && (
+        <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }}
+          onClick={save} disabled={saving}>
+          {saving ? 'Saving...' : '💾 Save All Flow Messages'}
+        </button>
+      )}
     </div>
   )
 }
