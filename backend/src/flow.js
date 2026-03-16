@@ -69,6 +69,29 @@ const HEALTH_CATEGORIES = {
   '10': 'Other'
 };
 
+// ─── GET FLOW MESSAGES (from DB or defaults) ─────────────────────────────────
+let cachedFlowMsgs = null;
+let cacheExpiry = 0;
+
+async function getFlowMessages() {
+  const now = Date.now();
+  if (cachedFlowMsgs && now < cacheExpiry) return cachedFlowMsgs;
+  try {
+    const { data } = await supabase.from('settings').select('value').eq('key', 'flow_messages').single();
+    cachedFlowMsgs = data?.value || {};
+    cacheExpiry = now + 60000; // Cache for 60 seconds
+    return cachedFlowMsgs;
+  } catch { return {}; }
+}
+
+// Get a specific flow message, falling back to language-specific default
+async function getMsg(key, lang) {
+  const dbMsgs = await getFlowMessages();
+  // DB messages are language-agnostic (Gujarati default) — for en/hi use MESSAGES
+  if (dbMsgs[key]) return dbMsgs[key];
+  return MESSAGES[lang]?.[key] || MESSAGES.gu[key] || '';
+}
+
 // ─── GET/CREATE CONVERSATION STATE ───────────────────────────────────────────
 async function getState(phone) {
   try {
@@ -283,7 +306,7 @@ async function processFlow({ phone, content, lead, io, sendMessage, saveOutgoing
       return false;
     }
     await setState(phone, lead.id, { language: selectedLang, flow_step: 'health_concern' });
-    const reply = MESSAGES[selectedLang].health_concern;
+    const reply = await getMsg('health_concern', selectedLang);
     await sendMessage(phone, reply);
     await saveOutgoing(lead.id, phone, reply, io);
     return true;
@@ -303,7 +326,7 @@ async function processFlow({ phone, content, lead, io, sendMessage, saveOutgoing
     }
     const data = { ...(state.collected_data || {}), health_concern: concern };
     await setState(phone, lead.id, { flow_step: 'duration', collected_data: data });
-    const reply = M.duration;
+    const reply = await getMsg('duration', lang);
     await sendMessage(phone, reply);
     await saveOutgoing(lead.id, phone, reply, io);
     return true;
@@ -315,7 +338,7 @@ async function processFlow({ phone, content, lead, io, sendMessage, saveOutgoing
     const duration = durations[msgNum] || msg;
     const data = { ...(state.collected_data || {}), duration };
     await setState(phone, lead.id, { flow_step: 'tried_medicine', collected_data: data });
-    const reply = M.tried_medicine;
+    const reply = await getMsg('tried_medicine', lang);
     await sendMessage(phone, reply);
     await saveOutgoing(lead.id, phone, reply, io);
     return true;
@@ -327,7 +350,7 @@ async function processFlow({ phone, content, lead, io, sendMessage, saveOutgoing
     const tried = options[msgNum] || msg;
     const data = { ...(state.collected_data || {}), tried_medicine: tried };
     await setState(phone, lead.id, { flow_step: 'age_group', collected_data: data });
-    const reply = M.age_group;
+    const reply = await getMsg('age_group', lang);
     await sendMessage(phone, reply);
     await saveOutgoing(lead.id, phone, reply, io);
     return true;
@@ -339,7 +362,7 @@ async function processFlow({ phone, content, lead, io, sendMessage, saveOutgoing
     const age = ages[msgNum] || 'Not specified';
     const data = { ...(state.collected_data || {}), age_group: age };
     await setState(phone, lead.id, { flow_step: 'form_preference', collected_data: data });
-    const reply = M.form_preference;
+    const reply = await getMsg('form_preference', lang);
     await sendMessage(phone, reply);
     await saveOutgoing(lead.id, phone, reply, io);
     return true;
