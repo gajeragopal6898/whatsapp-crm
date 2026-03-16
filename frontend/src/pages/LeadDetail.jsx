@@ -124,23 +124,30 @@ export default function LeadDetail() {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [stages, setStages] = useState([])
+  const [users, setUsers] = useState([])
   const [editNote, setEditNote] = useState(false)
   const [note, setNote] = useState('')
   const [followUp, setFollowUp] = useState('')
+  const [showTransfer, setShowTransfer] = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [transferTo, setTransferTo] = useState('')
   const bottomRef = useRef()
 
   const load = async () => {
     try {
-      const [leadRes, msgsRes, stagesRes] = await Promise.all([
+      const [leadRes, msgsRes, stagesRes, usersRes] = await Promise.all([
         api.get(`/leads/${id}`),
         api.get(`/messages/${id}`),
         api.get('/settings/stages'),
+        api.get('/users').catch(() => ({ data: [] })),
       ])
       setLead(leadRes.data)
       setNote(leadRes.data.notes || '')
       setFollowUp(leadRes.data.follow_up_at ? leadRes.data.follow_up_at.slice(0, 16) : '')
       setMessages(msgsRes.data)
       setStages(stagesRes.data)
+      setUsers(usersRes.data || [])
     } catch { toast.error('Failed to load') }
   }
 
@@ -181,6 +188,25 @@ export default function LeadDetail() {
     } catch { toast.error('Failed to update AI status') }
   }
 
+  const transferLead = async () => {
+    if (!transferTo) return toast.error('Select a team member')
+    try {
+      const { data } = await api.patch(`/leads/${id}/transfer`, { assigned_to: transferTo })
+      setLead(prev => ({ ...prev, assigned_to: transferTo, assignee: data.assignee }))
+      toast.success(`Lead transferred to ${data.assignee?.name}!`)
+      setShowTransfer(false)
+    } catch (e) { toast.error(e.response?.data?.error || 'Transfer failed') }
+  }
+
+  const deleteLead = async () => {
+    if (!deletePassword) return toast.error('Enter your password')
+    try {
+      await api.delete(`/leads/${id}`, { data: { password: deletePassword } })
+      toast.success('Lead deleted')
+      navigate('/leads')
+    } catch (e) { toast.error(e.response?.data?.error || 'Incorrect password') }
+  }
+
   const saveNote = async () => {
     try {
       await api.patch(`/leads/${id}`, { notes: note })
@@ -219,13 +245,19 @@ export default function LeadDetail() {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {/* AI Pause / Resume Button */}
-          <button
-            onClick={toggleAIPause}
+          <button onClick={toggleAIPause}
             className={`btn btn-sm ${lead.ai_paused ? 'btn-success' : 'btn-ghost'}`}
-            style={{ border: lead.ai_paused ? 'none' : '1px solid var(--orange)', color: lead.ai_paused ? '#fff' : 'var(--orange)' }}
-            title={lead.ai_paused ? 'AI is paused — click to resume' : 'Pause AI so you can reply manually'}
-          >
+            style={{ border: lead.ai_paused ? 'none' : '1px solid var(--orange)', color: lead.ai_paused ? '#fff' : 'var(--orange)' }}>
             {lead.ai_paused ? '▶️ Resume AI' : '⏸️ Pause AI'}
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowTransfer(true)}
+            title="Transfer this lead to another agent">
+            🔀 Transfer
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowDelete(true)}
+            style={{ color: 'var(--red)', border: '1px solid var(--red)' }}
+            title="Delete this lead (requires password)">
+            🗑️ Delete
           </button>
           <select className="input" style={{ width: 155 }} value={lead.stage_id || ''}
             onChange={e => updateStage(e.target.value)}>
@@ -234,6 +266,53 @@ export default function LeadDetail() {
           </select>
         </div>
       </div>
+
+      {/* Transfer Modal */}
+      {showTransfer && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowTransfer(false)}>
+          <div className="modal">
+            <div className="modal-title">🔀 Transfer Lead</div>
+            <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 14 }}>
+              Transfer <strong>{lead.name || lead.phone}</strong> to another team member.
+              {lead.assignee && <span> Currently assigned to: <strong>{lead.assignee.name}</strong></span>}
+            </p>
+            <div className="form-row">
+              <label className="label">Assign To</label>
+              <select className="input" value={transferTo} onChange={e => setTransferTo(e.target.value)}>
+                <option value="">Select team member...</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn btn-ghost" onClick={() => setShowTransfer(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={transferLead} disabled={!transferTo}>Transfer Lead</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Modal */}
+      {showDelete && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowDelete(false)}>
+          <div className="modal">
+            <div className="modal-title" style={{ color: 'var(--red)' }}>🗑️ Delete Lead</div>
+            <div style={{ background: '#2a1a1a', border: '1px solid var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
+              ⚠️ This will permanently delete <strong>{lead.name || lead.phone}</strong> and all their messages. This cannot be undone.
+            </div>
+            <div className="form-row">
+              <label className="label">Enter Your Login Password to Confirm</label>
+              <input className="input" type="password" value={deletePassword}
+                onChange={e => setDeletePassword(e.target.value)}
+                placeholder="Enter password..." autoFocus
+                onKeyDown={e => e.key === 'Enter' && deleteLead()} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn btn-ghost" onClick={() => { setShowDelete(false); setDeletePassword('') }}>Cancel</button>
+              <button className="btn btn-danger" onClick={deleteLead} disabled={!deletePassword}>Delete Permanently</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Paused Banner */}
       {lead.ai_paused && (
